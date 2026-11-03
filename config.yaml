@@ -1,0 +1,71 @@
+# Mochi configuration (shared defaults).
+# Put personal overrides in config.local.yaml (same structure, git-ignored) — see config.local.example.yaml.
+agent:
+  name: Mochi
+
+llm:
+  base_url: http://localhost:1234/v1      # LM Studio OpenAI-compatible server
+  model: qwen3.6-35b-a3b                  # any tool-calling model loaded in LM Studio
+  context_length: 32768                   # used when the launcher loads the model
+  reasoning_effort: none                  # none | low | medium | high  (none = fastest)
+  temperature: 0.3
+  max_steps: 40                           # tool-call iterations per user turn
+  lms_path: ""                            # empty = auto-detect (PATH or %USERPROFILE%\.lmstudio\bin\lms.exe)
+
+sandbox:
+  workspace: workspace                    # relative to this folder; Mochi reads/writes freely here
+  # Extra folders Mochi may READ without asking (writes still need approval)
+  read_allow: []
+  # Never readable or writable, even with approval (credentials etc.)
+  deny_globs:
+    - "**/.env"
+    - "**/.env.*"
+    - "**/*.pem"
+    - "**/*.key"
+    - "**/*.pfx"
+    - "**/id_rsa*"
+    - "**/id_ed25519*"
+    - "**/.ssh/**"
+    - "**/credentials*"
+    - "**/.aws/**"
+    - "**/.git-credentials"
+
+shell:
+  timeout_s: 120
+  # Commands whose FIRST token matches one of these run without approval (read-only)
+  auto_allow:
+    - Get-ChildItem
+    - Get-Content
+    - Get-Date
+    - Get-Process
+    - Get-Location
+    - Test-Path
+    - Measure-Object
+    - Select-String
+    - dir
+    - ls
+    - type
+    - echo
+    - whoami
+    - hostname
+  # Substrings that are always refused
+  hard_deny:
+    - "format-volume"
+    - "format c:"
+    - "diskpart"
+    - "bcdedit"
+    - "vssadmin delete"
+    - "cipher /w"
+    - "reg delete hklm"
+    - "Remove-Item C:\\ "
+    - "rm -rf /"
+    - "Set-ExecutionPolicy Unrestricted"
+    - "Invoke-Expression (New-Object Net.WebClient"
+    - "iwr -useb"
+
+comfyui:
+  url: http://127.0.0.1:8188
+  default_checkpoint: ""                  # empty = first checkpoint ComfyUI reports
+
+scheduler:
+  task_folder: Mochi                      # Windows Task Scheduler folder

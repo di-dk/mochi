@@ -1,0 +1,11 @@
+# Copy to config.local.yaml and edit. Only include the keys you want to change.
+# llm:
+#   model: devstral-small-2-24b-instruct-2512   # smaller GPU? pick a smaller tool-calling model
+#   context_length: 16384
+# sandbox:
+#   workspace: D:\MochiWorkspace
+#   read_allow:
+#     - C:\Users\YOU\ComfyUI\output
+# comfyui:
+#   url: http://127.0.0.1:8188
+#   default_checkpoint: sd_xl_base_1.0.safetensors

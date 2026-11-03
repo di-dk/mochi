@@ -1,0 +1,13 @@
+openai>=3.42,<4
+httpx>=0.28,<1
+PyYAML>=6.0
+rich>=15.0
+ddgs>=9.16
+trafilatura>=2.3
+PyAutoGUI>=0.9.54
+PyGetWindow>=0.0.9
+pillow>=13.0
+playwright>=1.64
+reportlab>=5.1
+Markdown>=3.11
+pytest>=9.2
