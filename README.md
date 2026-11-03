@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/mochi_small.png" width="260" alt="Mochi, a chibi mascot with pink dango hair buns, waving and holding a laptop"></p>
+<p align="center"><img src="assets/mochi_small.png" width="240" alt="Mochi, an anime girl with a pink bob in a pink dress and frilly apron, holding cake and tea"></p>
 
 # 🍡 Mochi — a cute, careful local AI agent for Windows
 
