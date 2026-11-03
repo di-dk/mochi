@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/mochi_small.png" width="260" alt="Mochi, a chibi mascot with pink dango hair buns, waving and holding a laptop"></p>
+
 # 🍡 Mochi — a cute, careful local AI agent for Windows
 
 Mochi is an autonomous assistant that runs **entirely on your PC**: a local LLM in
@@ -23,16 +25,26 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
 
 This creates a virtual environment, installs packages and Playwright's Chromium, runs the offline
-tests and adds a **Mochi** shortcut to your desktop.
+tests, adds a **Mochi** shortcut to your desktop and (if you say yes) adds the `mochi` command to your
+user PATH, so you can start her from any terminal by typing `mochi`.
+
+Already installed? Add or remove just the command:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -PathOnly     # add `mochi` to PATH
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -RemovePath   # undo (old PATH is backed up)
+```
 
 ## Use
 
-Double-click **Mochi** on the desktop, or:
+Double-click **Mochi** on the desktop, or in any terminal:
 
 ```powershell
-.\mochi.cmd                                  # chat
-.\mochi.cmd "make a PDF about the history of Brussels"   # one-shot task
+mochi                                            # chat
+mochi "make a PDF about the history of Brussels" # one-shot task
 ```
+
+(Without the PATH step, use `.\mochi.cmd` from the Mochi folder.)
 
 The launcher starts LM Studio's server and loads the model if needed (first load ≈ 1 min).
 

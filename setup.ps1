@@ -1,7 +1,35 @@
-# Mochi setup: creates .venv, installs packages and Playwright's Chromium, makes a desktop shortcut.
-# Run from the repo folder:  powershell -ExecutionPolicy Bypass -File .\setup.ps1
+# Mochi setup: creates .venv, installs packages and Playwright's Chromium, makes a desktop shortcut,
+# and (optionally) adds the `mochi` command to your PATH.
+#   powershell -ExecutionPolicy Bypass -File .\setup.ps1             # full setup
+#   powershell -ExecutionPolicy Bypass -File .\setup.ps1 -PathOnly   # only add `mochi` to PATH
+#   powershell -ExecutionPolicy Bypass -File .\setup.ps1 -RemovePath # undo the PATH change
+param([switch]$PathOnly, [switch]$RemovePath, [switch]$Yes)
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
+
+function Set-MochiPath([bool]$add) {
+  # Edits the *user* PATH only (no admin needed), keeping %VARIABLES% unexpanded.
+  $dir = $PSScriptRoot.TrimEnd('\')
+  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+  $old = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+  $parts = @($old -split ';' | Where-Object { $_ })
+  $has = $parts | Where-Object { $_.TrimEnd('\') -ieq $dir }
+  if ($add -and $has)       { Write-Host "'mochi' is already on your PATH."; $key.Close(); return }
+  if (-not $add -and -not $has) { Write-Host "Mochi is not on your PATH."; $key.Close(); return }
+  $backup = Join-Path $env:LOCALAPPDATA "mochi-path-backup-$(Get-Date -Format yyyyMMdd_HHmmss).txt"
+  Set-Content -Path $backup -Value $old -Encoding utf8
+  $new = if ($add) { ($parts + $dir) -join ';' } else { ($parts | Where-Object { $_.TrimEnd('\') -ine $dir }) -join ';' }
+  $key.SetValue('Path', $new, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+  $key.Close()
+  # Notify Explorer/new terminals that the environment changed
+  Add-Type -Namespace MochiWin -Name Env -MemberDefinition '[DllImport("user32.dll",CharSet=CharSet.Auto)] public static extern IntPtr SendMessageTimeout(IntPtr h,uint m,UIntPtr w,string l,uint f,uint t,out UIntPtr r);' -ErrorAction SilentlyContinue
+  $r = [UIntPtr]::Zero; [void][MochiWin.Env]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$r)
+  Write-Host ($(if ($add) { "Added $dir to your user PATH." } else { "Removed $dir from your user PATH." })) -ForegroundColor Green
+  Write-Host "Previous PATH backed up to $backup. Open a NEW terminal to use 'mochi'."
+}
+
+if ($RemovePath) { Set-MochiPath $false; exit 0 }
+if ($PathOnly)   { Set-MochiPath $true;  exit 0 }
 
 # 1. Find Python 3.11+ (the Microsoft Store "python" stub doesn't count)
 $candidates = @(
@@ -47,10 +75,14 @@ if (-not (Test-Path $lnk)) {
   if ($wt) { $s.TargetPath = $wt; $s.Arguments = "--title Mochi -d `"$PSScriptRoot`" cmd /k `"$PSScriptRoot\mochi.cmd`"" }
   else     { $s.TargetPath = "$env:ComSpec"; $s.Arguments = "/k `"$PSScriptRoot\mochi.cmd`"" }
   $s.WorkingDirectory = $PSScriptRoot
-  $s.IconLocation = "$env:SystemRoot\System32\imageres.dll,-5323"
+  $s.IconLocation = "$PSScriptRoot\assets\mochi.ico"
   $s.Save()
   Write-Host "Created desktop shortcut: $lnk"
 }
+
+# 6. `mochi` command on PATH (asks first)
+$ans = if ($Yes) { 'y' } else { Read-Host "Add the 'mochi' command to your PATH so you can type 'mochi' in any terminal? [Y/n]" }
+if ($ans -eq '' -or $ans -match '^[Yy]') { Set-MochiPath $true }
 
 Write-Host "`nDone! Next: install LM Studio (https://lmstudio.ai), download 'qwen3.6-35b-a3b' (or set another model"
 Write-Host "in config.local.yaml), then double-click the Mochi shortcut or run .\mochi.cmd" -ForegroundColor Green
