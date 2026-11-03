@@ -98,8 +98,10 @@ def ensure_llm(cfg: dict, log: Callable[[str], None] = print) -> None:
     match = [m for m in loaded if m.get("identifier") == llm["model"] or m.get("modelKey") == llm["model"]]
     if match and (match[0].get("contextLength") or 0) >= llm["context_length"] and match[0].get("parallel") == 1:
         return
-    if match:
-        subprocess.run([lms, "unload", match[0].get("identifier") or llm["model"]], capture_output=True)
+    # Free VRAM: unload every other LLM (embedding models stay) and a mis-configured copy of this one.
+    for m in loaded:
+        if m.get("type") == "llm":
+            subprocess.run([lms, "unload", m.get("identifier") or m.get("modelKey")], capture_output=True)
     # Give the LLM as much VRAM as possible at load time: ask ComfyUI (if running) to release its models.
     try:
         httpx.post(f"{cfg['comfyui']['url'].rstrip('/')}/free",
@@ -113,6 +115,27 @@ def ensure_llm(cfg: dict, log: Callable[[str], None] = print) -> None:
                        encoding="utf-8", errors="replace")
     if r.returncode != 0:
         raise RuntimeError(f"Could not load model: {r.stderr or r.stdout}")
+
+
+def list_models(cfg: dict) -> list[dict]:
+    """Chat models downloaded in LM Studio (embedding models excluded)."""
+    r = subprocess.run([cfg["llm"]["lms_path"], "ls", "--json"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    try:
+        models = json.loads(r.stdout or "[]")
+    except json.JSONDecodeError:
+        return []
+    return sorted((m for m in models if m.get("type") == "llm"), key=lambda m: m.get("modelKey", ""))
+
+
+def save_local_setting(section: str, key: str, value) -> Path:
+    """Persist one setting into config.local.yaml (keeps the other settings)."""
+    local = ROOT / "config.local.yaml"
+    data = (yaml.safe_load(local.read_text(encoding="utf-8")) or {}) if local.exists() else {}
+    data.setdefault(section, {})[key] = value
+    local.write_text("# Personal overrides for this PC (git-ignored).\n"
+                     + yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return local
 
 
 class Agent:

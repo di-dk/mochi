@@ -114,3 +114,14 @@ def test_registry_bad_input(env):
     assert "not valid JSON" in reg.call("read_file", "{bad", policy)
     assert "bad arguments" in reg.call("read_file", {"wrong": 1}, policy)
     assert policy.audit_path.exists()
+
+
+def test_save_local_setting_keeps_other_keys(tmp_path, monkeypatch):
+    import yaml
+    from agent import core
+    monkeypatch.setattr(core, "ROOT", tmp_path)
+    (tmp_path / "config.local.yaml").write_text("comfyui:\n  default_checkpoint: x.safetensors\n", encoding="utf-8")
+    core.save_local_setting("llm", "model", "some-model")
+    core.save_local_setting("llm", "model", "other-model")
+    data = yaml.safe_load((tmp_path / "config.local.yaml").read_text(encoding="utf-8"))
+    assert data == {"comfyui": {"default_checkpoint": "x.safetensors"}, "llm": {"model": "other-model"}}
