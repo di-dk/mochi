@@ -1,0 +1,19 @@
+# environment
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# personal data — never commit
+config.local.yaml
+workspace/
+logs/
+tasks/
+*.log
+
+# secrets (Mochi refuses to touch these anyway)
+.env
+.env.*
+*.pem
+*.key
+*.pfx
