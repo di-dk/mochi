@@ -15,8 +15,9 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
+from rich.table import Table
 
-from .core import ROOT, Agent, ensure_llm, load_config, make_policy
+from .core import ROOT, Agent, ensure_llm, list_models, load_config, make_policy, save_local_setting
 
 console = Console()
 
@@ -44,9 +45,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--unattended", action="store_true", help="no human present: refuse anything needing approval")
     ap.add_argument("--task-file", help="read the task from a file")
     ap.add_argument("--config", help="path to config.yaml")
+    ap.add_argument("--model", help="use this LM Studio model for this run only (see /models)")
     args = ap.parse_args(argv)
 
     cfg = load_config(Path(args.config) if args.config else None)
+    if args.model:
+        cfg["llm"]["model"] = args.model
     task = Path(args.task_file).read_text(encoding="utf-8") if args.task_file else " ".join(args.task)
 
     if args.unattended:
@@ -74,7 +78,49 @@ def main(argv: list[str] | None = None) -> int:
     agent = Agent(cfg, make_policy(cfg, approver=approver), on_event=interactive_events)
     console.print(Panel.fit(
         f"[bold magenta]🍡 {cfg['agent']['name']}[/] · model [cyan]{cfg['llm']['model']}[/] · workspace [green]{agent.policy.workspace}[/]\n"
-        f"{len(agent.registry.tools)} tools · commands: /reset  /tools  /allowed  /exit", border_style="magenta"))
+        f"{len(agent.registry.tools)} tools · commands: /models  /model <n>  /reset  /tools  /allowed  /exit",
+        border_style="magenta"))
+
+    def show_models() -> list[dict]:
+        models = list_models(cfg)
+        t = Table(box=None, pad_edge=False)
+        for col in ("#", "model", "size", "tools", "vision", ""):
+            t.add_column(col)
+        for i, m in enumerate(models, 1):
+            cur = "← current" if m["modelKey"] == cfg["llm"]["model"] else ""
+            t.add_row(str(i), m["modelKey"], f"{m.get('sizeBytes', 0) / 2**30:.1f} GB",
+                      "✓" if m.get("trainedForToolUse") else "[red]✗[/]", "✓" if m.get("vision") else "", cur)
+        console.print(t)
+        console.print("[dim]Switch with /model <number or name>. Models without tool support can't use Mochi's tools.[/]")
+        return models
+
+    def switch_model(choice: str) -> None:
+        models = list_models(cfg)
+        pick = None
+        if choice.isdigit() and 1 <= int(choice) <= len(models):
+            pick = models[int(choice) - 1]
+        else:
+            hits = [m for m in models if choice.lower() in m["modelKey"].lower()]
+            pick = hits[0] if len(hits) == 1 else None
+            if len(hits) > 1:
+                console.print(f"[yellow]'{choice}' matches several: {', '.join(m['modelKey'] for m in hits)}[/]"); return
+        if not pick:
+            console.print(f"[red]No model matches '{choice}'. Type /models to see the list.[/]"); return
+        key = pick["modelKey"]
+        if key == cfg["llm"]["model"]:
+            console.print(f"[dim]Already using {key}.[/]"); return
+        if not pick.get("trainedForToolUse"):
+            console.print("[yellow]Warning: this model isn't marked for tool use, so tools may not work.[/]")
+        old = cfg["llm"]["model"]
+        cfg["llm"]["model"] = key
+        try:
+            with console.status(f"Loading {key} (≈1 min)…"):
+                ensure_llm(cfg, log=lambda s: None)
+        except Exception as e:  # noqa: BLE001
+            cfg["llm"]["model"] = old
+            console.print(f"[red]Couldn't load {key}: {e}. Staying on {old}.[/]"); return
+        save_local_setting("llm", "model", key)
+        console.print(f"[magenta]🍡 Now using [bold]{key}[/]. Saved as default in config.local.yaml.[/]")
 
     def handle(text: str) -> None:
         t0 = time.time()
@@ -102,6 +148,15 @@ def main(argv: list[str] | None = None) -> int:
             agent.reset(); agent.policy.session_allowed.clear(); console.print("[dim]Conversation reset.[/]"); continue
         if text == "/tools":
             console.print(", ".join(agent.registry.tools)); continue
+        if text == "/models":
+            show_models(); continue
+        if text.startswith("/model"):
+            arg = text[len("/model"):].strip()
+            if not arg:
+                console.print(f"Current model: [cyan]{cfg['llm']['model']}[/]. Type /models to list, /model <n> to switch.")
+            else:
+                switch_model(arg)
+            continue
         if text == "/allowed":
             console.print(agent.policy.session_allowed or "(nothing auto-approved)"); continue
         handle(text)
