@@ -9,3 +9,5 @@
 # comfyui:
 #   url: http://127.0.0.1:8188
 #   default_checkpoint: sd_xl_base_1.0.safetensors
+# approvals:
+#   auto_allow: [launch, desktop]   # let Mochi open and operate apps on her own (sensitive windows still ask)

@@ -27,6 +27,20 @@ class Tool:
 class Registry:
     def __init__(self):
         self.tools: dict[str, Tool] = {}
+        self.pending_images: list[tuple[str, str]] = []   # (path, caption) to show a vision model
+        self.vision = False                              # set by Agent when the model can see
+        self._repeat, self._last_sig = 0, None
+
+    def attach_image(self, path, caption: str = "") -> str:
+        """Queue an image to be shown to the model after the current tool call."""
+        if not self.vision:
+            return " (the current model cannot view images; switch to a vision model such as gemma to see it)"
+        self.pending_images.append((str(path), caption))
+        return " (image attached below so you can see it)"
+
+    def drain_images(self) -> list[tuple[str, str]]:
+        imgs, self.pending_images = self.pending_images, []
+        return imgs
 
     def add(self, name: str, description: str, properties: dict, required: list[str] | None = None):
         def deco(fn):
@@ -57,6 +71,14 @@ class Registry:
         except Exception as e:  # tool failures go back to the model so it can recover
             result = f"ERROR: {type(e).__name__}: {e}\n{traceback.format_exc(limit=2)}"
         text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str, indent=1)
+        # Loop breaker: the same tool failing the same way 3x in a row -> tell the model to change approach.
+        sig = (name, text.splitlines()[0][:200]) if text.startswith(("ERROR", "DENIED")) else None
+        self._repeat = self._repeat + 1 if sig and sig == getattr(self, "_last_sig", None) else (1 if sig else 0)
+        self._last_sig = sig
+        if self._repeat >= 3:
+            text += ("\n\n(System: this exact error happened 3 times in a row. Stop repeating this call — change the "
+                     "arguments, inspect first (e.g. app_inspect / browser_read), use a different tool, or explain "
+                     "the problem to the user.)")
         policy.audit("tool_result", tool=name, chars=len(text), preview=text[:300])
         if len(text) > MAX_RESULT_CHARS:
             text = text[:MAX_RESULT_CHARS] + f"\n...[truncated {len(text) - MAX_RESULT_CHARS} chars]"

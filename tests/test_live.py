@@ -58,3 +58,31 @@ def test_scheduler_roundtrip(env):
     assert "SUCCESS" in r.upper()
     assert "pytest_probe" in call(env, "list_scheduled_tasks")
     assert "SUCCESS" in call(env, "delete_scheduled_task", name="pytest_probe").upper()
+
+
+def test_app_automation_calculator(env):
+    import subprocess
+    import time
+    subprocess.Popen(["calc.exe"])
+    for _ in range(20):
+        time.sleep(0.5)
+        if "Calculator" in call(env, "list_windows"):
+            break
+    try:
+        assert "Button" in call(env, "app_inspect", window="Calculator", filter="button")
+        for btn in ("Clear", "One", "Plus", "Two", "Equals"):
+            r = call(env, "app_click", window="Calculator", name=btn, control_type="Button")
+            assert "Clicked" in r or btn == "Clear"
+        assert "3" in call(env, "app_read", window="Calculator", automation_id="CalculatorResults")
+    finally:
+        call(env, "app_close", window="Calculator")
+
+
+def test_browser_screenshot_attaches_for_vision(env):
+    policy, reg = env
+    reg.vision = True
+    call(env, "browser_open", url="https://example.com")
+    assert "attached" in call(env, "browser_screenshot")
+    assert len(reg.drain_images()) == 1
+    call(env, "browser_close")
+    reg.vision = False
