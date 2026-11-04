@@ -17,3 +17,6 @@ tasks/
 *.pem
 *.key
 *.pfx
+
+# Mochi browser profile (cookies/logins)
+.browser-profile/

@@ -31,10 +31,18 @@ def interactive_events(kind: str, data: dict) -> None:
     if kind == "tool_call":
         args = data["args"] if len(data["args"]) < 300 else data["args"][:300] + "…"
         console.print(f"[cyan]→ {data['name']}[/] [dim]{args}[/]")
+    elif kind == "tool_result" and data["name"] in ("set_plan", "update_plan") and not data["result"].startswith("ERROR"):
+        console.print(Panel(data["result"].removeprefix("Plan:\n"), title="plan", border_style="dim", expand=False))
+    elif kind == "tool_result" and data["name"] in ("save_skill", "save_lesson"):
+        console.print(f"  [magenta]📚 {data['result']}[/]")
     elif kind == "tool_result":
         r = data["result"].strip().replace("\n", " ⏎ ")
         style = "red" if r.startswith(("ERROR", "DENIED")) else "dim"
         console.print(f"  [{style}]{r[:240]}{'…' if len(r) > 240 else ''}[/]")
+    elif kind == "nudge":
+        console.print("  [dim]↻ nudging her to finish the remaining steps…[/]")
+    elif kind == "image":
+        console.print(f"  [magenta]👀 looking at {', '.join(Path(p).name for p in data['paths'])}[/]")
     elif kind == "note":
         console.print(f"[italic]{data['text'][:500]}[/]")
 
@@ -120,6 +128,8 @@ def main(argv: list[str] | None = None) -> int:
             cfg["llm"]["model"] = old
             console.print(f"[red]Couldn't load {key}: {e}. Staying on {old}.[/]"); return
         save_local_setting("llm", "model", key)
+        agent.refresh_model_info()
+        agent.messages[0] = agent.system_message()
         console.print(f"[magenta]🍡 Now using [bold]{key}[/]. Saved as default in config.local.yaml.[/]")
 
     def handle(text: str) -> None:

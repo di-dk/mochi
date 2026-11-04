@@ -13,10 +13,31 @@ from pathlib import Path
 
 import httpx
 
-from .policy import Denied, Policy
+from .policy import Denied, Policy, is_sensitive_program, is_sensitive_window
 from .registry import Registry
 
 ROOT = Path(__file__).resolve().parent.parent
+VIEW_MAX = 1280  # longest side of images shown to the model
+# Shortcuts that open shells/system tools or lock/log off -> always ask, even in trusted mode
+RISKY_HOTKEYS = {"win+r", "win+x", "win+l", "ctrl+alt+delete", "ctrl+shift+esc", "win+i", "alt+f4", "win+e"}
+
+
+def active_window() -> str:
+    try:
+        import pygetwindow as gw
+        w = gw.getActiveWindow()
+        return w.title if w else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def window_at(x: int, y: int) -> str:
+    try:
+        from pywinauto import Desktop
+        e = Desktop(backend="uia").from_point(x, y)
+        return e.top_level_parent().window_text() or ""
+    except Exception:  # noqa: BLE001
+        return ""
 S = {"type": "string"}
 I = {"type": "integer"}
 B = {"type": "boolean"}
@@ -150,15 +171,24 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
                 for w in gw.getAllWindows() if w.title.strip() and w.visible and w.width > 50]
         return "\n".join(rows)
 
-    @reg.add("screenshot", "Take a screenshot of the screen (or a region) and save it in the workspace.",
+    shot: dict = {"scale": 1.0, "left": 0, "top": 0}   # maps last screenshot pixels -> screen pixels
+
+    @reg.add("screenshot",
+             "Take a screenshot of the screen (or a region [left, top, width, height]) and LOOK at it (vision models). "
+             "To click something you see, call mouse_click with the image coordinates and from_screenshot=true.",
              {"path": S, "region": {"type": "array", "items": I, "description": "[left, top, width, height]"}})
     def screenshot(path: str = "", region: list | None = None):
         import pyautogui
         p = policy.check_write(path or f"screenshots/shot_{time.strftime('%Y%m%d_%H%M%S')}.png")
         p.parent.mkdir(parents=True, exist_ok=True)
-        pyautogui.screenshot(str(p), region=tuple(region) if region else None)
+        img = pyautogui.screenshot(region=tuple(region) if region else None)
+        img.save(p)
         w, h = pyautogui.size()
-        return f"Saved screenshot to {p} (screen {w}x{h})"
+        s = max(img.width, img.height) / VIEW_MAX if max(img.width, img.height) > VIEW_MAX else 1.0
+        shot.update(scale=s, left=region[0] if region else 0, top=region[1] if region else 0)
+        vw, vh = round(img.width / s), round(img.height / s)
+        return (f"Saved screenshot to {p} (screen {w}x{h}; you see it as {vw}x{vh})"
+                + reg.attach_image(p, "screenshot"))
 
     @reg.add("focus_window", "Bring a window to the front by (partial) title.", {"title": S}, ["title"])
     def focus_window(title: str):
@@ -166,18 +196,24 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         wins = [w for w in gw.getWindowsWithTitle(title) if w.visible]
         if not wins:
             return f"No window matching {title!r}"
-        policy.require("desktop", f"Focus window {wins[0].title!r}")
+        policy.require("desktop", f"Focus window {wins[0].title!r}", sensitive=is_sensitive_window(wins[0].title))
         w = wins[0]
         if w.isMinimized:
             w.restore()
         w.activate()
         return f"Focused {w.title!r}"
 
-    @reg.add("mouse_click", "Click at screen coordinates. Asks the user first.",
-             {"x": I, "y": I, "button": S, "double": B}, ["x", "y"])
-    def mouse_click(x: int, y: int, button: str = "left", double: bool = False):
+    @reg.add("mouse_click",
+             "Click at screen coordinates. Set from_screenshot=true when x,y come from the last screenshot image. "
+             "Prefer app_click (no mouse needed) when the target is a normal app control. Asks the user first.",
+             {"x": I, "y": I, "button": S, "double": B, "from_screenshot": B}, ["x", "y"])
+    def mouse_click(x: int, y: int, button: str = "left", double: bool = False, from_screenshot: bool = False):
         import pyautogui
-        policy.require("desktop", f"{'Double-' if double else ''}{button}-click at ({x},{y})")
+        if from_screenshot:
+            x, y = round(shot["left"] + x * shot["scale"]), round(shot["top"] + y * shot["scale"])
+        target = window_at(x, y)
+        policy.require("desktop", f"{'Double-' if double else ''}{button}-click at screen ({x},{y}) on {target!r}",
+                       sensitive=is_sensitive_window(target) or not target)
         pyautogui.click(x, y, clicks=2 if double else 1, button=button)
         return f"Clicked ({x},{y})"
 
@@ -185,7 +221,9 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
              {"text": S, "press_enter": B}, ["text"])
     def type_text(text: str, press_enter: bool = False):
         import pyautogui
-        policy.require("desktop", f"Type into focused window: {text[:200]!r}{' + Enter' if press_enter else ''}")
+        active = active_window()
+        policy.require("desktop", f"Type into {active!r}: {text[:200]!r}{' + Enter' if press_enter else ''}",
+                       sensitive=is_sensitive_window(active) or not active)
         pyautogui.write(text, interval=0.01)
         if press_enter:
             pyautogui.press("enter")
@@ -195,7 +233,10 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
              {"keys": {"type": "array", "items": S}}, ["keys"])
     def hotkey(keys: list):
         import pyautogui
-        policy.require("desktop", f"Press {'+'.join(keys)}")
+        active = active_window()
+        combo = "+".join(k.lower() for k in keys)
+        policy.require("desktop", f"Press {combo} in {active!r}",
+                       sensitive=is_sensitive_window(active) or not active or combo in RISKY_HOTKEYS)
         pyautogui.hotkey(*keys)
         return f"Pressed {'+'.join(keys)}"
 
@@ -207,14 +248,21 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
             raise RuntimeError("No browser open. Call browser_open first.")
         return state["page"]
 
-    @reg.add("browser_open", "Open a URL in an automated Chromium browser (headless by default).",
+    @reg.add("browser_open",
+             "Open a URL in Mochi's own Chromium browser (headless/invisible by default; logins and cookies are kept "
+             "between sessions in her private profile). Use browser_screenshot to SEE the page.",
              {"url": S, "visible": B}, ["url"])
     def browser_open(url: str, visible: bool = False):
+        if "page" in state and state.get("visible") != visible:
+            browser_close()
         if "page" not in state:
             from playwright.sync_api import sync_playwright
             state["pw"] = sync_playwright().start()
-            state["browser"] = state["pw"].chromium.launch(headless=not visible)
-            state["page"] = state["browser"].new_page()
+            profile = ROOT / ".browser-profile"
+            state["browser"] = state["pw"].chromium.launch_persistent_context(
+                str(profile), headless=not visible, viewport={"width": 1280, "height": 900})
+            state["visible"] = visible
+            state["page"] = state["browser"].pages[0] if state["browser"].pages else state["browser"].new_page()
         page().goto(url, timeout=45000)
         return f"Opened {page().url} — title: {page().title()}"
 
@@ -248,12 +296,14 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
             page().wait_for_load_state()
         return "Filled."
 
-    @reg.add("browser_screenshot", "Save a screenshot of the current page to the workspace.", {"path": S})
-    def browser_screenshot(path: str = ""):
+    @reg.add("browser_screenshot",
+             "Screenshot the current page (visible area, or full_page=true) and LOOK at it (vision models).",
+             {"path": S, "full_page": B})
+    def browser_screenshot(path: str = "", full_page: bool = False):
         p = policy.check_write(path or f"screenshots/page_{time.strftime('%Y%m%d_%H%M%S')}.png")
         p.parent.mkdir(parents=True, exist_ok=True)
-        page().screenshot(path=str(p), full_page=True)
-        return f"Saved {p}"
+        page().screenshot(path=str(p), full_page=full_page)
+        return f"Saved {p}" + reg.attach_image(p, f"browser page {page().url}")
 
     @reg.add("browser_close", "Close the automated browser.", {})
     def browser_close():
@@ -264,21 +314,62 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         return "Browser closed."
 
     # ------------------------------------------------------------------ apps
-    @reg.add("open_with_default_app", "Open a file or URL with its default Windows app. Asks the user first.",
+    RUNNABLE = {".exe", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".msi", ".lnk", ".scr", ".com", ".hta", ".reg", ".url"}
+
+    @reg.add("open_with_default_app",
+             "Open a file or URL with its default Windows app (e.g. a PDF in the reader, a URL in the user's browser).",
              {"target": S}, ["target"])
     def open_with_default_app(target: str):
-        if not re.match(r"^https?://", target):
+        url = bool(re.match(r"^https?://", target))
+        if not url:
             target = str(policy.check_read(target))
-        policy.require("launch", f"Open {target}")
+        policy.require("launch", f"Open {target}", sensitive=not url and Path(target).suffix.lower() in RUNNABLE)
         os.startfile(target)  # noqa: S606
         return f"Opened {target}"
 
-    @reg.add("launch_app", "Start a program (exe path or name on PATH) with arguments. Asks the user first.",
+    def start_apps() -> list[dict]:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                            "Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        try:
+            data = json.loads(r.stdout or "[]")
+        except json.JSONDecodeError:
+            return []
+        return data if isinstance(data, list) else [data]
+
+    @reg.add("list_apps", "List apps installed on this PC (Start menu), optionally filtered by name.",
+             {"filter": S})
+    def list_apps(filter: str = ""):  # noqa: A002
+        apps = [a for a in start_apps() if filter.lower() in (a.get("Name") or "").lower()]
+        return "\n".join(sorted({a["Name"] for a in apps})[:200]) or "No matching apps."
+
+    @reg.add("launch_app",
+             "Start an app by its name as shown in the Start menu (e.g. 'Calculator', 'Notepad', 'Spotify'), or by exe "
+             "path / command, with optional arguments. Then wait a moment and use list_windows / app_inspect.",
              {"program": S, "args": {"type": "array", "items": S}}, ["program"])
     def launch_app(program: str, args: list | None = None):
-        policy.require("launch", f"Launch {program} {' '.join(args or [])}")
-        subprocess.Popen([program, *(args or [])], cwd=ws)
-        return f"Started {program}"
+        args = args or []
+        sensitive = is_sensitive_program(program) or any(is_sensitive_program(a) for a in args[:1])
+        exe = program if Path(program).is_file() else shutil.which(program)
+        if exe:
+            policy.require("launch", f"Launch {exe} {' '.join(args)}", sensitive=sensitive)
+            subprocess.Popen([exe, *args], cwd=ws)
+            return f"Started {exe}"
+        apps = start_apps()
+        exact = [a for a in apps if (a.get("Name") or "").lower() == program.lower()]
+        hits = exact or [a for a in apps if program.lower() in (a.get("Name") or "").lower()]
+        if not hits:
+            return f"No app or program named {program!r}. Use list_apps to see what's installed."
+        if len(hits) > 1 and not exact:
+            return "Several apps match: " + ", ".join(a["Name"] for a in hits[:15]) + ". Use the exact name."
+        app = hits[0]
+        sensitive = sensitive or is_sensitive_program(app["Name"]) or bool(
+            re.search(r"powershell|terminal|command prompt|registry|task manager|settings", app["Name"], re.I))
+        policy.require("launch", f"Launch app {app['Name']}", sensitive=sensitive)
+        if args:
+            return "Start-menu apps can't take arguments; use an exe path for that."
+        subprocess.Popen(["explorer.exe", f"shell:AppsFolder\\{app['AppID']}"])
+        return f"Started {app['Name']} (give it a second or two to open)"
 
     # ------------------------------------------------------------------ PDF
     @reg.add("create_pdf",
@@ -294,6 +385,9 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
 
     # ------------------------------------------------------------------ ComfyUI
     curl = cfg["comfyui"]["url"].rstrip("/")
+    COMFY_DOWN = (f"ComfyUI is not running (nothing at {curl}). Don't try to work around it by drawing images some "
+                  "other way. Either launch_app('ComfyUI'), wait ~60 seconds and check comfy_status, or tell the "
+                  "user to start ComfyUI Desktop.")
 
     @reg.add("comfy_status", "Check whether ComfyUI is running and show GPU/queue info.", {})
     def comfy_status():
@@ -301,7 +395,7 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
             st = httpx.get(f"{curl}/system_stats", timeout=5).json()
             q = httpx.get(f"{curl}/queue", timeout=5).json()
         except httpx.HTTPError as e:
-            return f"ComfyUI not reachable at {curl}: {e}. Ask the user to start ComfyUI Desktop."
+            return COMFY_DOWN
         dev = st.get("devices", [{}])[0]
         return (f"ComfyUI {st.get('system', {}).get('comfyui_version')} up. GPU {dev.get('name')}, "
                 f"VRAM free {dev.get('vram_free', 0) / 2**30:.1f} GB. Queue running={len(q['queue_running'])} "
@@ -312,11 +406,17 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         node, field = {"checkpoints": ("CheckpointLoaderSimple", "ckpt_name"),
                        "loras": ("LoraLoader", "lora_name"),
                        "unets": ("UNETLoader", "unet_name")}.get(kind, ("CheckpointLoaderSimple", "ckpt_name"))
-        info = httpx.get(f"{curl}/object_info/{node}", timeout=15).json()
+        try:
+            info = httpx.get(f"{curl}/object_info/{node}", timeout=15).json()
+        except httpx.ConnectError:
+            raise RuntimeError(COMFY_DOWN) from None
         return "\n".join(info[node]["input"]["required"][field][0])
 
     def queue_and_wait(workflow: dict, out_prefix: str, timeout_s: int = 900) -> list[str]:
-        r = httpx.post(f"{curl}/prompt", json={"prompt": workflow, "client_id": "local-agent"}, timeout=30)
+        try:
+            r = httpx.post(f"{curl}/prompt", json={"prompt": workflow, "client_id": "local-agent"}, timeout=30)
+        except httpx.ConnectError:
+            raise RuntimeError(COMFY_DOWN) from None
         if r.status_code != 200:
             raise RuntimeError(f"ComfyUI rejected workflow: {r.text[:1500]}")
         pid = r.json()["prompt_id"]
@@ -452,4 +552,6 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         hits = [l for l in lines if all(w in l.lower() for w in query.lower().split())]
         return "\n".join(hits[-50:]) or "No matching memories."
 
+    from .tools_extra import add_extra_tools
+    add_extra_tools(reg, policy, cfg)
     return reg

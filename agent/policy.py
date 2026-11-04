@@ -15,6 +15,30 @@ from pathlib import Path
 from typing import Callable
 
 
+import re as _re
+
+# Windows where keyboard/mouse input could run commands or change system settings -> always ask.
+SENSITIVE_WINDOW = _re.compile(
+    r"powershell|command prompt|cmd\.exe|\bterminal\b|windows terminal|^run$|registry editor|regedit|task manager|"
+    r"task scheduler|user account control|credential|password|bitlocker|services|group policy|"
+    r"device manager|disk management|mochi", _re.I)
+# Programs that are effectively shells/installers -> launching them always asks.
+SENSITIVE_PROGRAMS = {"powershell", "pwsh", "cmd", "wt", "bash", "wsl", "python", "pythonw", "py", "node", "reg",
+                      "regedit", "msiexec", "schtasks", "rundll32", "mshta", "wscript", "cscript", "certutil",
+                      "bitsadmin", "diskpart", "bcdedit", "netsh", "sc", "taskkill", "format", "msconfig",
+                      "gpedit", "secpol", "mmc", "control", "ms-settings"}
+
+
+def is_sensitive_window(title: str) -> bool:
+    return bool(SENSITIVE_WINDOW.search((title or "").strip()))
+
+
+def is_sensitive_program(program: str) -> bool:
+    stem = _re.split(r"[\\/]", program.strip().strip('"'))[-1].lower()
+    stem = _re.sub(r"\.(exe|cmd|bat|com|ps1|msc)$", "", stem)
+    return stem in SENSITIVE_PROGRAMS or program.lower().startswith(("ms-settings", "shell:"))
+
+
 PIPE_FILTERS = {"select-object", "where-object", "sort-object", "format-table", "format-list",
                 "measure-object", "select-string", "group-object", "out-string"}
 SECRET_MARKERS = (".env", "id_rsa", "id_ed25519", ".ssh", ".pem", ".pfx", ".git-credentials",
@@ -39,6 +63,9 @@ class Policy:
     audit_path: Path
     approver: Approver | None = None          # None => unattended: approvals are refused
     session_allowed: set[str] = field(default_factory=set)
+    # Categories the user trusts Mochi to do on her own (config approvals.auto_allow), e.g. {"launch", "desktop"}.
+    # Sensitive targets (terminals, Run box, registry, installers...) still ask.
+    auto_allow: set[str] = field(default_factory=set)
 
     # ---------- audit ----------
     def audit(self, event: str, **data) -> None:
@@ -48,9 +75,16 @@ class Policy:
             f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
 
     # ---------- approvals ----------
-    def require(self, category: str, summary: str) -> None:
-        """Block until the human approves, or raise Denied."""
-        if category in self.session_allowed:
+    def require(self, category: str, summary: str, sensitive: bool = False) -> None:
+        """Block until the human approves, or raise Denied.
+        sensitive=True means the target could be used to get around other rules (e.g. typing into a terminal),
+        so trusted auto-approval doesn't apply."""
+        if category in self.auto_allow and not sensitive:
+            self.audit("approval", category=category, summary=summary, result="trusted-auto")
+            return
+        if sensitive:
+            summary = "⚠ sensitive target — " + summary
+        if category in self.session_allowed and not sensitive:
             self.audit("approval", category=category, summary=summary, result="session-allowed")
             return
         if self.approver is None:

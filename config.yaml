@@ -30,6 +30,15 @@ sandbox:
     - "**/.aws/**"
     - "**/.git-credentials"
 
+approvals:
+  # Categories Mochi may do ON HER OWN without asking. Empty = always ask (safest).
+  # Options: launch (start apps), desktop (control app windows / mouse / keyboard), browser_action (click/fill
+  # in her own browser), schedule, clipboard, process, network_write.
+  # Never auto-allowed (always ask): delete, write_outside, read_outside, overwrite, shell, python.
+  # Even when trusted, sensitive targets still ask: terminals, Run box, Registry Editor, Task Manager, installers,
+  # shells like PowerShell/cmd, Win+R-style hotkeys. Deleting files and writing outside the workspace always ask.
+  auto_allow: []
+
 shell:
   timeout_s: 120
   # Commands whose FIRST token matches one of these run without approval (read-only)
