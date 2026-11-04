@@ -21,7 +21,7 @@ She's cheerful in chat, professional in her work, and **asks before doing anythi
 ## Install
 
 ```powershell
-git clone <this repo> mochi
+git clone https://github.com/di-dk/mochi
 cd mochi
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
