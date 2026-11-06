@@ -33,7 +33,7 @@ sandbox:
 approvals:
   # Categories Mochi may do ON HER OWN without asking. Empty = always ask (safest).
   # Options: launch (start apps), desktop (control app windows / mouse / keyboard), browser_action (click/fill
-  # in her own browser), schedule, clipboard, process, network_write.
+  # in her own browser), schedule, clipboard, process, network_write, video (make_video renders on her own).
   # Never auto-allowed (always ask): delete, write_outside, read_outside, overwrite, shell, python.
   # Even when trusted, sensitive targets still ask: terminals, Run box, Registry Editor, Task Manager, installers,
   # shells like PowerShell/cmd, Win+R-style hotkeys. Deleting files and writing outside the workspace always ask.
@@ -75,6 +75,13 @@ shell:
 comfyui:
   url: http://127.0.0.1:8188
   default_checkpoint: ""                  # empty = first checkpoint ComfyUI reports
+
+video:
+  # "Mochi Studio": a command that turns a small JSON script into a finished, voiced short (tools make_video and
+  # list_my_videos; recipe in skills/make-video.md). Empty = the video tools are not offered.
+  # Set it in config.local.yaml, e.g.  command: ["C:/path/python.exe", "C:/path/mochi-studio/studio.py"]
+  command: []
+  timeout_s: 1800
 
 scheduler:
   task_folder: Mochi                      # Windows Task Scheduler folder

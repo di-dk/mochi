@@ -352,3 +352,5 @@ def add_extra_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
 
     from .tools_auto import add_auto_tools
     add_auto_tools(reg, policy, cfg)
+    from .tools_video import add_video_tools
+    add_video_tools(reg, policy, cfg)
