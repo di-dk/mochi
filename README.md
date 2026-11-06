@@ -78,7 +78,8 @@ Everything she creates goes into `workspace\`. Ctrl+C interrupts.
   starter skills live in `skills\`. Their names are loaded into every session; she reads one with `read_skill`.
 - **Lessons:** when something fails and she finds the fix, she saves a one-liner (`workspace\lessons.md`) that
   she follows from then on.
-- **Loop breakers:** repeating the same failing call, or the same action 3 times, triggers a "change approach" hint.
+- **Loop breakers:** repeating the same failing call, or the same action 3 times, triggers a "change approach" hint;
+  a 4th identical call in the same task is blocked instead of run again.
 
 All of this is plain text you can read, edit or delete. She can't modify her own code, safety rules or persona.
 
@@ -88,7 +89,7 @@ All of this is plain text you can read, edit or delete. She can't modify her own
 |---|---|
 | Free | Reading/writing inside `workspace\`, web search/fetch, PDFs, ComfyUI, read-only shell commands |
 | Asks first (`y` / `n` / `a` = always this session) | Deleting, files outside the workspace, other shell commands, Python, mouse/keyboard/app control, browser clicks/typing, launching apps, scheduling, clipboard reading, killing processes, POST/PUT/DELETE web requests |
-| Trusted mode (optional) | `approvals.auto_allow: [launch, desktop]` in `config.local.yaml` lets her open and operate apps on her own. Terminals, the Run box, Registry Editor, Task Manager, installers, shells and Win+R-style hotkeys **still ask**. `delete`, `write_outside`, `read_outside`, `overwrite`, `shell`, `python` can never be auto-allowed |
+| Trusted mode (optional) | `approvals.auto_allow: [launch, desktop]` in `config.local.yaml` lets her open and operate apps on her own (`video` lets `make_video` render without asking). Terminals, the Run box, Registry Editor, Task Manager, installers, shells and Win+R-style hotkeys **still ask**. `delete`, `write_outside`, `read_outside`, `overwrite`, `shell`, `python` can never be auto-allowed |
 | Never | `.env`, keys, `.ssh`, credential files; destructive commands (diskpart, format, bcdedit, …); zip entries escaping their folder |
 | Scheduled runs | Nobody is there to approve, so anything that needs approval is refused (trusted categories still work) |
 
@@ -114,6 +115,32 @@ Every prompt, tool call and approval decision is logged to `logs\audit.jsonl`.
 | ComfyUI | comfy_status, comfy_list_models, comfy_txt2img, comfy_run_workflow (API-format JSON) |
 | Schedule | schedule_task, list_scheduled_tasks, delete_scheduled_task (Windows Task Scheduler) |
 | Memory | remember, recall |
+| Video (optional) | make_video, list_my_videos — see [Videos](#videos-optional) |
+
+## Videos (optional)
+
+Mochi can make finished, voiced vertical shorts (2D cards, 3D cinematic, or quizzes) in **one tool call**:
+she writes a tiny script (title, style, scenes with a spoken line + short on-screen text, or quiz questions) and
+`make_video` hands it to a *studio* command that does the voice, rendering, mixing and filing. Recipe:
+`skills\make-video.md`. A small local model is good at writing the script and bad at driving a long render
+pipeline, so the pipeline stays outside her.
+
+The tools only appear when you configure a studio in `config.local.yaml`:
+
+```yaml
+video:
+  command: ["C:/path/to/python.exe", "C:/path/to/studio.py"]
+approvals:
+  auto_allow: [video]        # optional: render without asking each time
+```
+
+Studio contract (any program works):
+- `<command> --check script.json`: validate only. `<command> script.json`: make the video.
+  `<command> --list N`: print the last N videos.
+- The script JSON has `title`, `style` (`2d` | `3d` | `quiz`), `scenes` (`[{say, text, emoji, label}]` or plain
+  strings), `questions` (`[{q, options, answer, why}]`), `end`, `look`, `caption`, `hashtags`.
+- The last stdout line is `RESULT {"ok": true, "video": ..., "folder": ..., "seconds": ..., "style": ...}`, or
+  `RESULT {"ok": false, "error": "..."}`. The error is shown to Mochi so she can fix the script.
 
 ## Customize
 
@@ -141,7 +168,7 @@ Every prompt, tool call and approval decision is logged to `logs\audit.jsonl`.
 ## Tests
 
 ```powershell
-.venv\Scripts\python.exe -m pytest              # offline: sandbox, approvals, trusted mode, tools, skills, PDF/Word/Excel
+.venv\Scripts\python.exe -m pytest              # offline: sandbox, approvals, trusted mode, tools, skills, PDF/Word/Excel, video tools
 .venv\Scripts\python.exe -m pytest -m live -s   # web, browser, desktop, Calculator via UI Automation, ComfyUI, Task Scheduler
 .venv\Scripts\python.exe -m pytest -m e2e -s    # real LLM: research+image+PDF, vision, headless browser, plan/verify/learn, app on her own
 ```
