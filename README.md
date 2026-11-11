@@ -76,6 +76,16 @@ Everything she creates goes into `workspace\`. Ctrl+C interrupts.
   vision), `view_image`, `app_read`.
 - **Skills:** after a new multi-step task works she saves a recipe (`save_skill` → `workspace\skills\`). Built-in
   starter skills live in `skills\`. Their names are loaded into every session; she reads one with `read_skill`.
+- **37 built-in skills:** besides her own recipes (PDF reports, videos, ComfyUI images, web and app automation),
+  v0.3.0 adds 31 short recipes adapted from [Hermes Agent](https://github.com/NousResearch/hermes-agent) skills
+  and rewritten for her tools and a small local model:
+  research and web (`arxiv-papers`, `grounded-citations`, `competitor-news-monitor`, `rss-feeds`,
+  `reddit-reading`, `blocked-page-recovery`, `youtube-content`, `price-monitor`, `maps`, `stocks`),
+  writing and planning (`document-action-items`, `meeting-action-items`, `weekly-review`, `decision-brief`,
+  `decision-questionnaire`, `flashcards`, `humanize-text`, `simple-english`, `creative-ideation`,
+  `content-calendar`, `songwriting`) and building (`systematic-debugging`, `test-driven-development`, `spike`,
+  `plan-interview`, `api-debugging`, `github-cli`, `web-app-qa`, `architecture-diagram`, `html-mockups`,
+  `meme-maker`). Only the first 40 skills are listed to the model, so keep the total under that.
 - **Lessons:** when something fails and she finds the fix, she saves a one-liner (`workspace\lessons.md`) that
   she follows from then on.
 - **Loop breakers:** repeating the same failing call, or the same action 3 times, triggers a "change approach" hint;
@@ -176,3 +186,6 @@ Studio contract (any program works):
 ## License
 
 MIT
+
+31 of the built-in skills are adapted from skills in [Hermes Agent](https://github.com/NousResearch/hermes-agent)
+(MIT, Copyright (c) 2025 Nous Research). See `skills\CREDITS.txt`.

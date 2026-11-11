@@ -1,0 +1,56 @@
+Skill credits
+=============
+
+The following built-in skills are adapted from skills in Hermes Agent
+(https://github.com/NousResearch/hermes-agent, commit c0c4357), which is released under the MIT License,
+Copyright (c) 2025 Nous Research. They were shortened and rewritten for Mochi's own tools, Windows and a
+small local model; they are not copies and are not endorsed by Nous Research.
+
+Mochi skill               <- Hermes skill
+arxiv-papers              <- research/arxiv
+grounded-citations        <- research/grounded-citations
+competitor-news-monitor   <- research/competitor-news-monitor
+rss-feeds                 <- research/rss-feeds
+reddit-reading            <- social-media/reddit-reading
+blocked-page-recovery     <- web/blocked-page-recovery
+youtube-content           <- media/youtube-content
+price-monitor             <- productivity/product-price-monitor
+maps                      <- productivity/maps
+stocks                    <- finance/stocks
+document-action-items     <- productivity/document-to-action-items
+meeting-action-items      <- productivity/meeting-action-items
+weekly-review             <- productivity/weekly-review-planning
+decision-brief            <- communication/one-three-one-rule
+decision-questionnaire    <- productivity/decision-questionnaire
+flashcards                <- productivity/memento-flashcards
+humanize-text             <- creative/humanizer
+simple-english            <- creative/simple-english
+creative-ideation         <- creative/creative-ideation
+content-calendar          <- creative/social-media-content-calendar
+songwriting               <- creative/songwriting-and-ai-music
+systematic-debugging      <- software-development/systematic-debugging
+test-driven-development   <- software-development/test-driven-development
+spike                     <- software-development/spike
+plan-interview            <- software-development/grill-me
+api-debugging             <- software-development/rest-graphql-debug
+github-cli                <- software-development/github
+web-app-qa                <- software-development/dogfood
+architecture-diagram      <- creative/architecture-diagram
+html-mockups              <- creative/sketch
+meme-maker                <- creative/meme-generation
+
+MIT License (Hermes Agent)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and
+to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.
