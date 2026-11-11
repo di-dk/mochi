@@ -61,6 +61,10 @@ Try:
 
 Everything she creates goes into `workspace\`. Ctrl+C interrupts.
 
+**Talk to her while she works.** You don't have to wait for her to finish: type a message and press Enter
+at any time ("also compare prices", "skip the images", "answer in Dutch"). She reads it before her next step
+and adjusts without starting over. Type `/stop` to make her stop; it also cuts off an answer she is still writing.
+
 | Chat command | |
 |---|---|
 | `/models` | list LM Studio models (size, tool + vision support) |
@@ -68,6 +72,8 @@ Everything she creates goes into `workspace\`. Ctrl+C interrupts.
 | `/reset` · `/tools` · `/allowed` · `/exit` | new conversation · list tools · session approvals · quit |
 
 `mochi --model <name> "task"` uses a model for one run only.
+`mochi --bench` times every tool-capable model you have (cold start, a tool-choice step, a summary) so you can
+pick the fastest one that still chooses the right tool; `mochi --bench gemma qwen` limits it to matching names.
 
 ## How she works and learns
 
@@ -160,6 +166,19 @@ Studio contract (any program works):
 - `reasoning_effort: none` is fastest; `low`/`medium` make her think more before acting.
 
 ## Performance tips
+
+- **Only the tools a task needs are sent to the model** (`tools.groups: auto`). About 20 core tools are always
+  there; the rest sit in six groups (code, browser, desktop, docs, media, system) that load from the words in
+  your request, from the skill being used, or when she calls `use_tools`. On an RTX 4080 with a 27B model this
+  cut the first reply from about 30 s to about 10 s. `/tools` shows what is loaded.
+- **Skills are picked for her.** When a request clearly matches one skill, its recipe is handed over with the
+  request, so she doesn't spend a step looking it up (`skills.auto_match`).
+- **Memory is trimmed rarely and in one go**, so LM Studio can keep reusing its cache between steps. When it is
+  full, old tool results are summarised for the task at hand instead of cut off (`context.condense`).
+- **A final check**: after a task that used tools she compares her answer with your request once before
+  replying (`agent.final_check`). It costs one short extra model call.
+- `llm.fast_model` (optional): a small second local model for condensing long pages as they arrive. It needs
+  spare VRAM next to the main model, so it is off by default.
 
 - The launcher loads the model with `--parallel 1`. LM Studio's default of 4 parallel slots (or `--gpu max`)
   can push a 35B model off the GPU and make it ~50× slower.

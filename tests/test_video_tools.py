@@ -90,6 +90,7 @@ def test_list_my_videos(env):
 
 def test_repeat_guard_blocks_fourth_identical_call(env, tmp_path):
     cfg, policy, reg, _ = env
+    cfg["agent"]["final_check"] = False            # this test scripts the exact replies
     runs = []
     reg.add("probe", "test tool", {})(lambda: runs.append(1) or "same listing")
     tc = SimpleNamespace(id="c", type="function", function=SimpleNamespace(name="probe", arguments="{}"))

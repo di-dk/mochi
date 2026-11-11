@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .policy import Denied, Policy, is_sensitive_window
 from .registry import Registry
+from .smart import GROUP_HELP, GROUPS
 
 ROOT = Path(__file__).resolve().parent.parent
 BUILTIN_SKILLS = ROOT / "skills"
@@ -156,6 +157,20 @@ def add_extra_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
             return f"ERROR: no step {step}"
         plan[step - 1]["status"] = status if status in ("todo", "doing", "done", "skipped") else "done"
         return render_plan()
+
+    # ------------------------------------------------------------------ tool groups
+    @reg.add("use_tools",
+             "Load more tools for the current task. Groups: "
+             + "; ".join(f"{g} = {h}" for g, h in GROUP_HELP.items()) + ".",
+             {"groups": {"type": "array", "items": S}}, ["groups"])
+    def use_tools(groups: list):
+        good = [g for g in groups if g in GROUPS]
+        bad = [g for g in groups if g not in GROUPS]
+        reg.enabled_groups |= set(good)
+        out = "".join(f"Loaded {g}: {', '.join(sorted(t for t in GROUPS[g] if t in reg.tools))}\n" for g in good)
+        if bad:
+            out += f"Unknown group(s): {', '.join(bad)}. Valid groups: {', '.join(GROUPS)}."
+        return out.strip() or "Nothing loaded."
 
     # ------------------------------------------------------------------ skills & lessons
     @reg.add("find_skills",

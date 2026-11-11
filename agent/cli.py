@@ -3,18 +3,23 @@
   mochi                       interactive chat
   mochi "do something"        run one task interactively, then exit
   mochi --unattended --task-file f.txt   (used by scheduled tasks; approvals are refused)
+  mochi --bench [name ...]    time the installed models and show which is fastest
+
+While she is working you can keep typing: a line + Enter is handed to her before her next step, /stop makes her
+stop. One background thread reads the keyboard and routes each line to whoever is waiting for it.
 """
 from __future__ import annotations
 
 import argparse
+import queue
 import sys
+import threading
 import time
 from pathlib import Path
 
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.prompt import Prompt
 from rich.table import Table
 
 from .core import ROOT, Agent, ensure_llm, list_models, load_config, make_policy, save_local_setting
@@ -22,9 +27,69 @@ from .core import ROOT, Agent, ensure_llm, list_models, load_config, make_policy
 console = Console()
 
 
-def approver(category: str, summary: str) -> str:
-    console.print(Panel(summary, title=f"[bold yellow]Approval needed: {category}", border_style="yellow"))
-    return Prompt.ask("[yellow]Allow?[/] [y]es / [n]o / [a]lways this session", choices=["y", "n", "a"], default="n")
+class Keyboard:
+    """Single reader of stdin. Each typed line goes to exactly one place: an approval question that is waiting,
+    the busy agent (as an extra message, or /stop), or the idle prompt (as the next command)."""
+
+    def __init__(self):
+        self.commands: queue.Queue = queue.Queue()     # lines typed while idle (None = end of input)
+        self.answers: queue.Queue = queue.Queue()      # lines typed while an approval question is open
+        self.agent = None
+        self.busy = False
+        self.asking = False
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self) -> None:
+        while True:
+            try:
+                line = input().strip()
+            except (EOFError, OSError):
+                self.commands.put(None)
+                self.answers.put("n")
+                return
+            self.route(line)
+
+    def route(self, line: str) -> None:
+        if self.asking:
+            self.answers.put(line)
+        elif self.busy and self.agent is not None:
+            if not line:
+                return
+            if line.lower() in ("/stop", "stop", "/cancel"):
+                self.agent.stop.set()
+                console.print("  [yellow]■ stopping…[/]")
+            else:
+                self.agent.inbox.put(line)
+                console.print("  [green]↪ got it, she will see this before her next step[/]")
+        else:
+            self.commands.put(line)
+
+    def ask(self, prompt: str) -> str | None:
+        """Next line typed at the idle prompt; None when input ended. Ctrl+C raises KeyboardInterrupt."""
+        console.print(prompt, end="")
+        while True:
+            try:
+                return self.commands.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+    def approve(self, category: str, summary: str) -> str:
+        console.print(Panel(summary, title=f"[bold yellow]Approval needed: {category}", border_style="yellow"))
+        self.asking = True
+        try:
+            while True:
+                console.print("[yellow]Allow?[/] [y]es / [n]o / [a]lways this session (n): ", end="")
+                while True:
+                    try:
+                        answer = (self.answers.get(timeout=0.2) or "n").lower()
+                        break
+                    except queue.Empty:
+                        continue
+                if answer[:1] in ("y", "n", "a"):
+                    return answer[:1]
+                console.print("[red]Please answer y, n or a.[/]")
+        finally:
+            self.asking = False
 
 
 def interactive_events(kind: str, data: dict) -> None:
@@ -43,6 +108,14 @@ def interactive_events(kind: str, data: dict) -> None:
         console.print("  [dim]↻ nudging her to finish the remaining steps…[/]")
     elif kind == "image":
         console.print(f"  [magenta]👀 looking at {', '.join(Path(p).name for p in data['paths'])}[/]")
+    elif kind == "skill":
+        console.print(f"  [magenta]📖 using her skill: {data['name']}[/]")
+    elif kind == "steer":
+        console.print(f"  [green]↪ she read your message: {data['text'][:200]}[/]")
+    elif kind == "check":
+        console.print("  [dim]✓ double-checking the answer against your request…[/]")
+    elif kind == "condense":
+        console.print(f"  [dim]⇣ memory is full: condensing an older result ({data['chars']} chars)…[/]")
     elif kind == "note":
         console.print(f"[italic]{data['text'][:500]}[/]")
 
@@ -54,12 +127,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--task-file", help="read the task from a file")
     ap.add_argument("--config", help="path to config.yaml")
     ap.add_argument("--model", help="use this LM Studio model for this run only (see /models)")
+    ap.add_argument("--bench", nargs="*", metavar="NAME",
+                    help="time the installed tool-capable models (optionally only those matching NAME) and exit")
     args = ap.parse_args(argv)
 
     cfg = load_config(Path(args.config) if args.config else None)
     if args.model:
         cfg["llm"]["model"] = args.model
     task = Path(args.task_file).read_text(encoding="utf-8") if args.task_file else " ".join(args.task)
+    if args.bench is not None:
+        from .bench import run_bench
+        return run_bench(cfg, args.bench, console)
 
     if args.unattended:
         log = ROOT / "logs" / f"run_{time.strftime('%Y%m%d_%H%M%S')}.log"
@@ -83,10 +161,13 @@ def main(argv: list[str] | None = None) -> int:
 
     with console.status("Checking LM Studio..."):
         ensure_llm(cfg, log=lambda s: console.print(f"[dim]{s}[/]"))
-    agent = Agent(cfg, make_policy(cfg, approver=approver), on_event=interactive_events)
+    kb = Keyboard()
+    agent = Agent(cfg, make_policy(cfg, approver=kb.approve), on_event=interactive_events)
+    kb.agent = agent
     console.print(Panel.fit(
         f"[bold magenta]🍡 {cfg['agent']['name']}[/] · model [cyan]{cfg['llm']['model']}[/] · workspace [green]{agent.policy.workspace}[/]\n"
-        f"{len(agent.registry.tools)} tools · commands: /models  /model <n>  /reset  /tools  /allowed  /exit",
+        f"{len(agent.registry.tools)} tools · commands: /models  /model <n>  /reset  /tools  /allowed  /exit\n"
+        f"[dim]While she works: type a message + Enter to add to the task, /stop to stop her.[/]",
         border_style="magenta"))
 
     def show_models() -> list[dict]:
@@ -134,12 +215,15 @@ def main(argv: list[str] | None = None) -> int:
 
     def handle(text: str) -> None:
         t0 = time.time()
+        kb.busy = True
         try:
             answer = agent.run(text)
         except KeyboardInterrupt:
             console.print("[red]Interrupted.[/]"); return
         except Exception as e:  # noqa: BLE001
             console.print(f"[red]Error: {type(e).__name__}: {e}[/]"); return
+        finally:
+            kb.busy = False
         console.print(Panel(Markdown(answer), title=f"{cfg['agent']['name']} · {time.time() - t0:.0f}s", border_style="magenta"))
 
     if task:
@@ -147,8 +231,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     while True:
         try:
-            text = Prompt.ask("\n[bold cyan]you[/]").strip()
-        except (EOFError, KeyboardInterrupt):
+            text = kb.ask("\n[bold cyan]you[/]: ")
+        except KeyboardInterrupt:
+            break
+        if text is None:
             break
         if not text:
             continue
@@ -157,7 +243,10 @@ def main(argv: list[str] | None = None) -> int:
         if text == "/reset":
             agent.reset(); agent.policy.session_allowed.clear(); console.print("[dim]Conversation reset.[/]"); continue
         if text == "/tools":
-            console.print(", ".join(agent.registry.tools)); continue
+            loaded = {t["function"]["name"] for t in agent.registry.schemas(auto=agent._auto_tools())}
+            console.print(", ".join(n if n in loaded else f"[dim]{n}[/]" for n in agent.registry.tools))
+            console.print("[dim]Dim tools are not loaded yet; she loads their group when a task needs it.[/]")
+            continue
         if text == "/models":
             show_models(); continue
         if text.startswith("/model"):

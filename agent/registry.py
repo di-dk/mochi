@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .policy import Denied
+from .smart import group_of
 
 MAX_RESULT_CHARS = 12000
 
@@ -30,6 +31,7 @@ class Registry:
         self.pending_images: list[tuple[str, str]] = []   # (path, caption) to show a vision model
         self.vision = False                              # set by Agent when the model can see
         self._repeat, self._last_sig = 0, None
+        self.enabled_groups: set[str] = set()            # tool groups loaded for this session
 
     def attach_image(self, path, caption: str = "") -> str:
         """Queue an image to be shown to the model after the current tool call."""
@@ -50,8 +52,12 @@ class Registry:
             return fn
         return deco
 
-    def schemas(self) -> list[dict]:
-        return [t.schema() for t in self.tools.values()]
+    def schemas(self, auto: bool = False) -> list[dict]:
+        """All tool schemas, or with auto=True only core tools plus the groups loaded so far."""
+        if not auto:
+            return [t.schema() for t in self.tools.values()]
+        return [t.schema() for n, t in self.tools.items()
+                if (g := group_of(n)) is None or g in self.enabled_groups]
 
     def call(self, name: str, raw_args: str | dict, policy) -> str:
         tool = self.tools.get(name)
@@ -62,6 +68,8 @@ class Registry:
         except json.JSONDecodeError as e:
             return f"ERROR: tool arguments were not valid JSON ({e}). Retry with valid JSON."
         policy.audit("tool_call", tool=name, args=args)
+        if group_of(name):                       # a tool from a group that was not loaded yet: load it
+            self.enabled_groups.add(group_of(name))
         try:
             result = tool.fn(**args)
         except Denied as e:

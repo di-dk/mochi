@@ -2,6 +2,7 @@
 # Put personal overrides in config.local.yaml (same structure, git-ignored) — see config.local.example.yaml.
 agent:
   name: Mochi
+  final_check: true                       # after a task that used tools, one quick "is everything done?" pass
 
 llm:
   base_url: http://localhost:1234/v1      # LM Studio OpenAI-compatible server
@@ -10,10 +11,24 @@ llm:
   reasoning_effort: none                  # none | low | medium | high  (none = fastest)
   temperature: 0.3
   max_steps: 40                           # tool-call iterations per user turn
+  stream: true                            # stream replies so /stop can cut one short
+  fast_model: ""                          # optional SMALL second local model for helper jobs (condensing long
+                                          # pages). Needs spare VRAM next to the main model; empty = not used.
   lms_path: ""                            # empty = auto-detect (PATH or %USERPROFILE%\.lmstudio\bin\lms.exe)
 
+tools:
+  groups: auto                            # auto = send the model only core tools + the groups a task needs
+                                          # (faster, more focused); all = always send every tool
+
+skills:
+  auto_match: true                        # when a request clearly matches one skill, hand her the recipe directly
+
+context:
+  condense: true                          # when memory is full, summarise old tool results instead of cutting them
+  summarize_over: 6000                    # with llm.fast_model set: condense page reads longer than this on arrival
+
 sandbox:
-  workspace: workspace                    # relative to this folder; Mochi reads/writes freely here
+  workspace: workspace                   # relative to this folder; Mochi reads/writes freely here
   # Extra folders Mochi may READ without asking (writes still need approval)
   read_allow: []
   # Never readable or writable, even with approval (credentials etc.)
