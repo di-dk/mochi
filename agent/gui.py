@@ -16,8 +16,10 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
+from . import attach
+from .history import ChatStore, clean_messages, new_id, title_from
 from .core import ROOT, STOPPED, Agent, ensure_llm, list_models, make_policy, save_local_setting
 
 WEB = Path(__file__).parent / "web"
@@ -25,6 +27,7 @@ IMAGE_EXT = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", "
              ".gif": "image/gif"}
 PATH_RE = re.compile(r"""(?:[A-Za-z]:[\\/]|\.{0,2}[\\/])?[^\s"'<>|*?:]+\.(?:png|jpe?g|webp|gif)""", re.I)
 MAX_EVENTS = 20000
+MAX_UPLOAD = 2 * 1024**3          # 2 GB per file
 
 
 class Bus:
@@ -62,6 +65,11 @@ class GuiApp:
         self.busy = False
         self.error = ""
         self._make_agent = make_agent
+        self.store: ChatStore | None = None
+        self.chat_id: str | None = None
+        self.created = 0.0
+        self.title = ""
+        self.transcript: list[dict] = []
         self._approvals: dict[str, dict] = {}
         self._lock = threading.Lock()
 
@@ -76,6 +84,7 @@ class GuiApp:
                     ensure_llm(self.cfg, log=lambda s: self.bus.push("status", text=s))
                     self.agent = Agent(self.cfg, make_policy(self.cfg, approver=self.approve),
                                        on_event=self.on_event)
+                self.store = ChatStore(self.agent.policy.workspace)
                 self.bus.push("ready", model=self.cfg["llm"]["model"], tools=len(self.agent.registry.tools),
                               workspace=str(self.agent.policy.workspace))
             except Exception as e:  # noqa: BLE001
@@ -95,11 +104,19 @@ class GuiApp:
             self.bus.push("thinking")
         elif kind == "tool_call":
             self.bus.push("tool_call", name=data["name"], args=str(data["args"])[:600])
+            self.transcript.append({"t": "step", "name": data["name"], "args": str(data["args"])[:600],
+                                    "result": "", "error": False})
         elif kind == "tool_result":
             result = str(data["result"])
-            self.bus.push("tool_result", name=data["name"], result=result[:1500],
-                          error=result.startswith(("ERROR", "DENIED")))
+            err = result.startswith(("ERROR", "DENIED"))
+            self.bus.push("tool_result", name=data["name"], result=result[:1500], error=err)
+            for item in reversed(self.transcript):
+                if item["t"] == "step":
+                    item["result"], item["error"] = result[:1500], err
+                    break
             self._pictures(result)
+        elif kind == "note":
+            self.transcript.append({"t": "bot", "text": data["text"]})
         elif kind in ("skill", "steer", "check", "nudge", "condense", "image"):
             self.bus.push("info", what=kind, text=str(data.get("name") or data.get("text") or ""))
 
@@ -117,6 +134,7 @@ class GuiApp:
             if rel not in seen and p.is_file():
                 seen.add(rel)
                 self.bus.push("picture", rel=rel, name=p.name)
+                self.transcript.append({"t": "picture", "rel": rel, "name": p.name})
                 if len(seen) >= 4:
                     break
 
@@ -146,9 +164,47 @@ class GuiApp:
         return True
 
     # ------------------------------------------------------------------ page -> agent
-    def send(self, text: str) -> str:
+    def _upload_paths(self, rels: list) -> list[Path]:
+        """Turn the page's uploaded-file names into real paths, only ones inside workspace/uploads."""
+        up = (self.agent.policy.workspace / attach.UPLOADS).resolve()
+        out = []
+        for rel in rels or []:
+            p = (self.agent.policy.workspace / str(rel)).resolve()
+            try:
+                p.relative_to(up)
+            except ValueError:
+                continue
+            if p.is_file():
+                out.append(p)
+        return out
+
+    def save_upload(self, name: str, reader, length: int) -> dict:
+        """Store one uploaded file under workspace/uploads and report where."""
+        if self.agent is None:
+            raise RuntimeError("starting")
+        if length <= 0 or length > MAX_UPLOAD:
+            raise ValueError("file is empty or over 2 GB")
+        up = self.agent.policy.workspace / attach.UPLOADS
+        up.mkdir(parents=True, exist_ok=True)
+        dest = attach.unique(up, attach.safe_name(name))
+        left = length
+        with dest.open("wb") as f:
+            while left > 0:
+                chunk = reader(min(1 << 20, left))
+                if not chunk:
+                    break
+                f.write(chunk)
+                left -= len(chunk)
+        if left:
+            dest.unlink(missing_ok=True)
+            raise ValueError("upload was cut short")
+        rel = dest.relative_to(self.agent.policy.workspace.resolve()).as_posix()
+        return {"rel": rel, "name": dest.name, "image": dest.suffix.lower() in IMAGE_EXT, "size": length}
+
+    def send(self, text: str, files: list | None = None) -> str:
         text = (text or "").strip()
-        if not text:
+        paths = self._upload_paths(files) if self.agent is not None else []
+        if not text and not paths:
             return "empty"
         if self.agent is None:
             return "starting"
@@ -158,30 +214,111 @@ class GuiApp:
         if text == "/reset":
             if self.busy:
                 return "busy"
-            self.agent.reset()
-            self.agent.policy.session_allowed.clear()
-            self.bus.push("reset")
-            return "ok"
+            return self.new_chat()
+        shown = [{"name": p.name, "rel": p.relative_to(self.agent.policy.workspace.resolve()).as_posix(),
+                  "image": p.suffix.lower() in IMAGE_EXT} for p in paths]
         if self.busy:
-            self.agent.inbox.put(text)
-            self.bus.push("user", text=text, queued=True)
+            note = self.agent.attach_note(paths)[0] if paths else ""
+            self.agent.inbox.put(text + note)
+            self.bus.push("user", text=text, queued=True, files=shown)
+            self.transcript.append({"t": "user", "text": text, "files": shown, "queued": True})
             return "queued"
-        self.bus.push("user", text=text, queued=False)
+        self.bus.push("user", text=text, queued=False, files=shown)
+        self.transcript.append({"t": "user", "text": text, "files": shown})
         self.busy = True
-        threading.Thread(target=self._run, args=(text,), daemon=True).start()
+        threading.Thread(target=self._run, args=(text, paths), daemon=True).start()
         return "started"
 
-    def _run(self, text: str) -> None:
+    def _run(self, text: str, paths: list | None = None) -> None:
         t0 = time.time()
         self.bus.push("busy")
         try:
-            answer = self.agent.run(text)
-            self.bus.push("done", answer=answer, secs=round(time.time() - t0), stopped=answer == STOPPED)
+            answer = self.agent.run(text, attachments=paths or None)
+            secs = round(time.time() - t0)
+            last = self.transcript[-1] if self.transcript else None
+            if answer.strip() and not (last and last["t"] == "bot" and last["text"].strip() == answer.strip()):
+                self.transcript.append({"t": "bot", "text": answer})
+            self.transcript.append({"t": "meta", "text": f"{secs}s" + (" · stopped" if answer == STOPPED else "")})
+            self.bus.push("done", answer=answer, secs=secs, stopped=answer == STOPPED)
         except Exception as e:  # noqa: BLE001
             self.bus.push("error", text=f"{type(e).__name__}: {e}")
         finally:
             self.busy = False
+            self._save()
             self.bus.push("idle")
+
+    # ------------------------------------------------------------------ saved chats
+    def _save(self) -> None:
+        """Write the current chat (what the window shows + what she remembers) to workspace/chats."""
+        if not self.transcript or self.store is None or self.agent is None:
+            return
+        try:
+            if self.chat_id is None:
+                self.chat_id, self.created = new_id(), time.time()
+            if not self.title:
+                first = next((i for i in self.transcript if i["t"] == "user"), {})
+                self.title = title_from(first.get("text", ""), first.get("files"))
+            self.store.save({"id": self.chat_id, "title": self.title, "created": self.created,
+                             "transcript": self.transcript, "messages": clean_messages(self.agent.messages)})
+            self.bus.push("chats")
+        except Exception as e:  # noqa: BLE001
+            self.bus.push("status", text=f"Could not save this chat: {e}")
+
+    def chats(self) -> dict:
+        return {"chats": self.store.list() if self.store else [], "current": self.chat_id}
+
+    def state(self) -> dict:
+        """Everything a freshly opened page needs, plus where to start listening for new events."""
+        with self.bus.cv:
+            since = self.bus.base + len(self.bus.events)
+        return {**self.info(), "since": since, "chat_id": self.chat_id, "transcript": list(self.transcript),
+                "workspace": str(self.agent.policy.workspace) if self.agent else "",
+                "tools": len(self.agent.registry.tools) if self.agent else 0}
+
+    def new_chat(self) -> str:
+        if self.busy or self.agent is None:
+            return "busy"
+        self._save()
+        self.agent.reset()
+        self.agent.policy.session_allowed.clear()
+        self.chat_id, self.title, self.created, self.transcript = None, "", 0.0, []
+        self.bus.push("loaded", chat_id=None, transcript=[])
+        return "ok"
+
+    def open_chat(self, chat_id: str) -> str:
+        if self.busy or self.agent is None or self.store is None:
+            return "busy"
+        chat = self.store.load(chat_id)
+        if not chat:
+            return "not found"
+        if chat_id != self.chat_id:
+            self._save()
+        self.agent.messages = [self.agent.system_message()] + list(chat.get("messages") or [])
+        self.agent.policy.session_allowed.clear()
+        self.chat_id, self.title, self.created = chat["id"], chat.get("title", ""), chat.get("created", time.time())
+        self.transcript = list(chat.get("transcript") or [])
+        self.bus.push("loaded", chat_id=self.chat_id, transcript=self.transcript)
+        return "ok"
+
+    def delete_chat(self, chat_id: str) -> str:
+        if self.store is None:
+            return "starting"
+        if chat_id == self.chat_id:
+            if self.busy:
+                return "busy"
+            self.transcript = []               # do not re-save a chat that is being deleted
+            self.new_chat()
+        ok = self.store.delete(chat_id)
+        self.bus.push("chats")
+        return "ok" if ok else "not found"
+
+    def rename_chat(self, chat_id: str, title: str) -> str:
+        if self.store is None or not self.store.rename(chat_id, title):
+            return "could not rename"
+        if chat_id == self.chat_id:
+            self.title = title.strip()[:60]
+        self.bus.push("chats")
+        return "ok"
 
     def stop(self) -> None:
         if self.agent is not None:
@@ -271,6 +408,10 @@ def make_handler(app: GuiApp, host_header: str):
                 self._send(200, f.read_bytes() if f.exists() else b"", "image/png")
             elif u.path == "/info":
                 self._json(app.info())
+            elif u.path == "/state":
+                self._json(app.state())
+            elif u.path == "/chats":
+                self._json(app.chats())
             elif u.path == "/poll":
                 last = int((q.get("since") or ["0"])[0])
                 self._json({"events": app.bus.since(last)})
@@ -302,18 +443,33 @@ def make_handler(app: GuiApp, host_header: str):
             if not self._ok():
                 return
             n = int(self.headers.get("Content-Length") or 0)
+            if urlparse(self.path).path == "/upload":
+                name = unquote((parse_qs(urlparse(self.path).query).get("name") or ["file"])[0])
+                try:
+                    return self._json(app.save_upload(name, self.rfile.read, n))
+                except Exception as e:  # noqa: BLE001
+                    self.close_connection = True
+                    return self._json({"error": str(e)}, 400)
             try:
                 body = json.loads(self.rfile.read(n) or b"{}")
             except ValueError:
                 return self._json({"error": "bad json"}, 400)
             path = urlparse(self.path).path
             if path == "/send":
-                self._json({"status": app.send(str(body.get("text", "")))})
+                self._json({"status": app.send(str(body.get("text", "")), body.get("files") or [])})
             elif path == "/stop":
                 app.stop()
                 self._json({"status": "stopping"})
             elif path == "/approve":
                 self._json({"ok": app.answer(str(body.get("id", "")), str(body.get("answer", "")))})
+            elif path == "/chat/new":
+                self._json({"status": app.new_chat()})
+            elif path == "/chat/open":
+                self._json({"status": app.open_chat(str(body.get("id", "")))})
+            elif path == "/chat/delete":
+                self._json({"status": app.delete_chat(str(body.get("id", "")))})
+            elif path == "/chat/rename":
+                self._json({"status": app.rename_chat(str(body.get("id", "")), str(body.get("title", "")))})
             elif path == "/model":
                 self._json({"status": app.set_model(str(body.get("key", "")))})
             else:

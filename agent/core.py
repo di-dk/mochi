@@ -404,10 +404,24 @@ class Agent:
     def _auto_tools(self) -> bool:
         return (self.cfg.get("tools") or {}).get("groups", "auto") != "all"
 
-    def run(self, user_text: str) -> str:
+    def attach_note(self, paths: list) -> tuple[str, list]:
+        """Describe files the user attached (copied into the workspace). Returns (note, images for vision)."""
+        from . import attach
+        note, images = attach.prepare(paths, self.policy.workspace, denied=self.policy.is_denied)
+        if note:
+            self.registry.enabled_groups |= {"docs", "media"}
+        return note, images
+
+    def run(self, user_text: str, attachments: list | None = None) -> str:
         self.stop.clear()
-        self.messages.append({"role": "user", "content": self._prepare(user_text)})
-        self.policy.audit("user", text=user_text)
+        note, images = self.attach_note(attachments) if attachments else ("", [])
+        if attachments and not user_text.strip():
+            user_text = "Please look at the attached file(s) and tell me what they are and what is in them."
+        self.messages.append({"role": "user", "content": self._prepare(user_text) + note})
+        if images and self.vision:
+            self.on_event("image", {"paths": [p for p, _ in images]})
+            self.messages.append(self._image_message(images))
+        self.policy.audit("user", text=user_text, files=[str(a) for a in attachments or []])
         llm, reg = self.cfg["llm"], self.registry
         agent_cfg = self.cfg.get("agent") or {}
         nudges = tool_count = 0

@@ -7,32 +7,59 @@
 <style>
 :root{
   --bg:#17121c; --panel:#201929; --panel2:#2a2136; --line:#3a2f48; --text:#f1eaf7; --dim:#a79bb6;
-  --pink:#ff7eb6; --pink2:#d94f93; --green:#5fd6a0; --red:#ff6b7a; --yellow:#ffc857; --code:#120e17;
+  --pink:#ff7eb6; --pink2:#d94f93; --green:#5fd6a0; --red:#ff6b7a; --yellow:#ffc857; --code:#120e17; --side:#1b1522;
 }
 @media (prefers-color-scheme: light){
   :root{ --bg:#fbf6fb; --panel:#ffffff; --panel2:#f4eaf4; --line:#e6d6e6; --text:#2a1f33; --dim:#7b6c88;
-         --pink:#d94f93; --pink2:#b83a7a; --green:#1f9d6a; --red:#d6334a; --yellow:#b27a00; --code:#f1e7f1; }
+         --pink:#d94f93; --pink2:#b83a7a; --green:#1f9d6a; --red:#d6334a; --yellow:#b27a00; --code:#f1e7f1; --side:#f6edf6; }
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--text);font:15px/1.55 "Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column}
-header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
-header img{width:40px;height:40px;border-radius:50%;object-fit:cover;object-position:top;border:2px solid var(--pink)}
-header .t b{display:block;font-size:16px}
-header .t span{font-size:12px;color:var(--dim)}
-header .sp{flex:1}
-select,button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
+body{background:var(--bg);color:var(--text);font:15px/1.55 "Segoe UI",system-ui,sans-serif;display:flex;overflow:hidden}
+button,select,input,textarea{font:inherit;color:var(--text)}
+select,button{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
 button:hover,select:hover{border-color:var(--pink)}
 button.primary{background:var(--pink2);border-color:var(--pink2);color:#fff}
 button.danger{border-color:var(--red);color:var(--red)}
 button:disabled{opacity:.45;cursor:default}
+
+/* ---- sidebar: saved chats */
+#side{width:272px;flex:none;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+#side .top{padding:12px 12px 8px;display:flex;flex-direction:column;gap:8px}
+#side .brand{display:flex;align-items:center;gap:10px;font-weight:600}
+#side .brand img{width:34px;height:34px;border-radius:50%;object-fit:cover;object-position:top;border:2px solid var(--pink)}
+#side input{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;outline:none}
+#side input:focus{border-color:var(--pink)}
+#chatlist{flex:1;overflow-y:auto;padding:4px 8px 12px}
+.grp{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:12px 6px 4px}
+.ci{display:flex;align-items:center;gap:4px;padding:7px 8px;border-radius:8px;cursor:pointer;position:relative}
+.ci:hover{background:var(--panel2)}
+.ci.on{background:var(--panel2);box-shadow:inset 3px 0 0 var(--pink)}
+.ci .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
+.ci .acts{display:none;gap:2px}
+.ci:hover .acts,.ci.on .acts{display:flex}
+.ci .acts button{padding:0 6px;border:none;background:none;color:var(--dim);font-size:13px;line-height:22px}
+.ci .acts button:hover{color:var(--pink)}
+.ci .acts .del.sure{color:var(--red);font-weight:600}
+.ci input{flex:1;min-width:0;padding:2px 6px}
+.locked .ci{opacity:.55;pointer-events:none}
+.empty{color:var(--dim);font-size:13px;padding:10px 8px}
+
+/* ---- main column */
+#main{flex:1;min-width:0;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header .t b{display:block;font-size:16px}
+header .t span{font-size:12px;color:var(--dim)}
+header .sp{flex:1}
+#burger{display:none}
 #chat{flex:1;overflow-y:auto;padding:20px 0}
 .wrap{max-width:820px;margin:0 auto;padding:0 16px}
 .row{display:flex;gap:10px;margin:14px 0;align-items:flex-start}
 .row.user{justify-content:flex-end}
 .row .av{width:34px;height:34px;border-radius:50%;object-fit:cover;object-position:top;flex:none;border:1px solid var(--pink)}
 .bubble{max-width:88%;padding:10px 14px;border-radius:16px;overflow-wrap:anywhere}
-.user .bubble{background:var(--pink2);color:#fff;border-bottom-right-radius:4px;white-space:pre-wrap}
+.user .bubble{background:var(--pink2);color:#fff;border-bottom-right-radius:4px}
+.user .bubble .txt{white-space:pre-wrap}
 .bot .bubble{background:var(--panel);border:1px solid var(--line);border-bottom-left-radius:4px}
 .bubble p{margin:.4em 0}.bubble p:first-child{margin-top:0}.bubble p:last-child{margin-bottom:0}
 .bubble code{background:var(--code);padding:1px 5px;border-radius:5px;font:13px Consolas,monospace}
@@ -43,6 +70,9 @@ button:disabled{opacity:.45;cursor:default}
 .bubble a{color:var(--pink)}
 .bubble table{border-collapse:collapse;margin:.5em 0}.bubble td,.bubble th{border:1px solid var(--line);padding:3px 8px}
 .bubble img.pic{max-width:100%;border-radius:10px;margin-top:6px;display:block}
+.files{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+.files img{max-width:200px;max-height:160px;border-radius:10px;display:block}
+.fchip{background:rgba(255,255,255,.18);border-radius:8px;padding:2px 9px;font-size:13px}
 .queued{opacity:.65}
 .meta{font-size:12px;color:var(--dim);margin:2px 0 0 44px}
 .step{margin:4px 0 4px 44px;font-size:13px;color:var(--dim);border-left:2px solid var(--line);padding-left:10px}
@@ -63,46 +93,83 @@ button:disabled{opacity:.45;cursor:default}
 .think i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--pink);margin-right:3px;animation:p 1.2s infinite}
 .think i:nth-child(2){animation-delay:.2s}.think i:nth-child(3){animation-delay:.4s}
 @keyframes p{0%,80%,100%{opacity:.25}40%{opacity:1}}
-.hero{text-align:center;margin-top:12vh;color:var(--dim)}
+.hero{text-align:center;margin-top:10vh;color:var(--dim)}
 .hero img{width:130px;border-radius:50%;border:3px solid var(--pink);margin-bottom:10px}
 .hero h2{color:var(--text);margin:.2em 0}
 .chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:16px}
 .chips button{border-radius:20px}
+
+/* ---- composer */
 footer{border-top:1px solid var(--line);background:var(--panel);padding:12px 0}
 .box{display:flex;gap:8px;align-items:flex-end}
-textarea{flex:1;resize:none;max-height:180px;min-height:44px;font:inherit;color:var(--text);background:var(--panel2);
+#clip{font-size:18px;padding:6px 11px;height:44px}
+textarea{flex:1;resize:none;max-height:180px;min-height:44px;background:var(--panel2);
   border:1px solid var(--line);border-radius:12px;padding:10px 12px;outline:none}
 textarea:focus{border-color:var(--pink)}
 .hint{font-size:12px;color:var(--dim);margin-top:6px}
+#pend{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+#pend:empty{display:none}
+.pf{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:4px 6px 4px 6px;font-size:13px;max-width:260px}
+.pf img{width:34px;height:34px;object-fit:cover;border-radius:6px}
+.pf .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pf.err{border-color:var(--red);color:var(--red)}
+.pf button{border:none;background:none;padding:0 4px;color:var(--dim)}
+.pf .spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--pink);border-radius:50%;animation:r .8s linear infinite}
+@keyframes r{to{transform:rotate(360deg)}}
 #banner{display:none;background:var(--panel2);color:var(--yellow);text-align:center;padding:6px;font-size:13px}
+#drop{display:none;position:fixed;inset:0;background:rgba(23,18,28,.82);z-index:20;align-items:center;justify-content:center;
+  color:#fff;font-size:22px;border:3px dashed var(--pink);margin:10px;border-radius:18px}
+
+@media (max-width:760px){
+  #side{position:fixed;z-index:15;top:0;bottom:0;left:0;transform:translateX(-100%);transition:transform .2s}
+  body.side #side{transform:none;box-shadow:0 0 40px rgba(0,0,0,.5)}
+  #burger{display:inline-block}
+}
 </style>
 </head>
 <body>
-<header>
-  <img src="/avatar.png?t=__TOKEN__" alt="">
-  <div class="t"><b>__NAME__</b><span id="sub">starting…</span></div>
-  <div class="sp"></div>
-  <select id="models" title="Model" style="max-width:260px"></select>
-  <button id="reset" title="Start a new conversation">New chat</button>
-  <button id="stop" class="danger" style="display:none">■ Stop</button>
-</header>
-<div id="banner"></div>
-<div id="chat"><div class="wrap" id="log"></div></div>
-<footer><div class="wrap">
-  <div class="box">
-    <textarea id="inp" rows="1" placeholder="Message __NAME__…  (Enter to send, Shift+Enter for a new line)"></textarea>
-    <button id="send" class="primary">Send</button>
+<aside id="side">
+  <div class="top">
+    <div class="brand"><img src="/avatar.png?t=__TOKEN__" alt=""><span>__NAME__</span></div>
+    <button id="newchat" class="primary">＋ New chat</button>
+    <input id="q" placeholder="Search chats" autocomplete="off">
   </div>
-  <div class="hint">While she works you can still type: your message reaches her before her next step.</div>
-</div></footer>
+  <div id="chatlist"></div>
+</aside>
+
+<div id="main">
+  <header>
+    <button id="burger" title="Chats">☰</button>
+    <div class="t"><b id="ctitle">New chat</b><span id="sub">starting…</span></div>
+    <div class="sp"></div>
+    <select id="models" title="Model" style="max-width:260px"></select>
+    <button id="stop" class="danger" style="display:none">■ Stop</button>
+  </header>
+  <div id="banner"></div>
+  <div id="chat"><div class="wrap" id="log"></div></div>
+  <footer><div class="wrap">
+    <div id="pend"></div>
+    <div class="box">
+      <button id="clip" title="Attach photos, videos, PDFs, documents, spreadsheets, text…">📎</button>
+      <input type="file" id="pick" multiple hidden>
+      <textarea id="inp" rows="1" placeholder="Message __NAME__…  (Enter to send, Shift+Enter for a new line)"></textarea>
+      <button id="send" class="primary">Send</button>
+    </div>
+    <div class="hint">Drop or paste files anywhere. While she works you can still type: your message reaches her before her next step.</div>
+  </div></footer>
+</div>
+<div id="drop">Drop files to attach them 📎</div>
 
 <script>
 const TOKEN="__TOKEN__", NAME="__NAME__";
 const $=id=>document.getElementById(id);
 const log=$("log"), chat=$("chat"), inp=$("inp");
 let since=0, cur=null, curText="", busy=false, ready=false, thinkEl=null, stick=true;
+let chatId=null, chatList=[], files=[];
 const AV="/avatar.png?t="+TOKEN;
+const fileUrl=rel=>"/file?t="+TOKEN+"&p="+encodeURIComponent(rel);
 
+/* ------------------------------------------------------------------ markdown */
 const esc=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 function inline(s){
   s=esc(s);
@@ -137,89 +204,140 @@ function md(src){
   }
   close(); return out;
 }
+/* while text is being typed, close an unfinished **bold** or `code` so it renders cleanly instead of flickering */
+function heal(t){
+  const last=t.slice(t.lastIndexOf("\n")+1);
+  if((last.match(/`/g)||[]).length%2 && !/^```/.test(last)) t+="`";
+  if((last.replace(/`[^`]*`/g,"").match(/\*\*/g)||[]).length%2) t+="**";
+  return t;
+}
 
+/* ------------------------------------------------------------------ chat view */
 function scroll(){ if(stick) chat.scrollTop=chat.scrollHeight; }
 chat.addEventListener("scroll",()=>{stick=chat.scrollHeight-chat.scrollTop-chat.clientHeight<80});
 function add(el){ clearThink(); log.appendChild(el); scroll(); return el; }
 function mk(cls,html){const d=document.createElement("div");d.className=cls;d.innerHTML=html||"";return d}
 function hero(){
   if($("hero")) return;
-  const h=mk("hero",`<img src="${AV}"><h2>Hi, I'm ${esc(NAME)} 🍡</h2><div>Ask me anything or give me a task.</div>
+  const h=mk("hero",`<img src="${AV}"><h2>Hi, I'm ${esc(NAME)} 🍡</h2><div>Ask me anything, give me a task, or drop a file.</div>
    <div class="chips"></div>`); h.id="hero";
   const ex=["What's the weather like today?","Tidy up my Downloads folder","Summarize a PDF for me","Make me a short video"];
   ex.forEach(t=>{const b=document.createElement("button");b.textContent=t;b.onclick=()=>{inp.value=t;sendMsg()};h.querySelector(".chips").appendChild(b)});
   log.appendChild(h);
 }
 function clearHero(){const h=$("hero");if(h)h.remove()}
-function userBubble(text,queued){
+function userBubble(text,queued,fl){
   clearHero(); cur=null;
-  const r=mk("row user"+(queued?" queued":""),""); const b=mk("bubble",""); b.textContent=text+(queued?"  (sent while she works)":""); r.appendChild(b); add(r);
+  const r=mk("row user"+(queued?" queued":"")); const b=mk("bubble");
+  if(fl&&fl.length){
+    const f=mk("files");
+    fl.forEach(x=>{ if(x.image){const im=new Image();im.src=fileUrl(x.rel);im.alt=x.name;im.onload=scroll;f.appendChild(im)}
+                    else f.appendChild(mk("fchip","📄 "+esc(x.name))) });
+    b.appendChild(f);
+  }
+  if(text||queued){ const t=mk("txt"); t.textContent=(text||"")+(queued?"  (sent while she works)":""); b.appendChild(t); }
+  r.appendChild(b); add(r);
 }
 function botBubble(){
-  const r=mk("row bot",`<img class="av" src="${AV}">`); const b=mk("bubble typing",""); r.appendChild(b); add(r); return b;
+  const r=mk("row bot",`<img class="av" src="${AV}">`); const b=mk("bubble typing"); r.appendChild(b); add(r); return b;
 }
 function think(){
   if(thinkEl) return;
   thinkEl=mk("think","<i></i><i></i><i></i> thinking"); log.appendChild(thinkEl); scroll();
 }
 function clearThink(){ if(thinkEl){thinkEl.remove();thinkEl=null} }
-function endCur(){ if(cur){cur.classList.remove("typing");cur.innerHTML=md(curText);} cur=null; curText=""; pending=""; }
+function endCur(){ if(cur){cur.classList.remove("typing");cur.innerHTML=md(curText);} cur=null; curText=""; pending=""; acc=0; }
+function stepEl(name,args,result,error){
+  const d=document.createElement("details"); d.className="step"+(error?" err":"");
+  d.innerHTML=`<summary><span class="n">→ ${esc(name)}</span> <span>${esc((args||"").slice(0,110))}</span></summary><pre></pre>`;
+  d.querySelector("pre").textContent=(args||"")+(result?"\n\n"+result:""); return d;
+}
+function pictureRow(rel,name){
+  const r=mk("row bot",`<img class="av" src="${AV}">`); const b=mk("bubble");
+  const im=new Image(); im.className="pic"; im.alt=name; im.onload=scroll; im.src=fileUrl(rel); b.appendChild(im); r.appendChild(b); return r;
+}
+function renderTranscript(items){
+  log.innerHTML=""; cur=null; curText=""; pending=""; acc=0; evq=evq.filter(e=>e.kind!=="token"); clearThink(); stick=true;
+  if(!items.length){ hero(); return; }
+  items.forEach(it=>{
+    if(it.t==="user") userBubble(it.text,it.queued,it.files);
+    else if(it.t==="bot"){ const r=mk("row bot",`<img class="av" src="${AV}">`); const b=mk("bubble"); b.innerHTML=md(it.text); r.appendChild(b); log.appendChild(r); }
+    else if(it.t==="step") log.appendChild(stepEl(it.name,it.args,it.result,it.error));
+    else if(it.t==="picture") log.appendChild(pictureRow(it.rel,it.name));
+    else if(it.t==="meta") log.appendChild(mk("meta",esc(it.text)));
+  });
+  stick=true; chat.scrollTop=chat.scrollHeight;
+}
 
-// ---- typewriter: tokens arrive in uneven bursts, so they are queued and shown at a steady pace
-let pending="", evq=[], lastT=0, dirty=false;
+/* ------------------------------------------------------------------ typewriter
+   Every reply is typed out character by character, streamed or not. Her model produces text in uneven bursts, so
+   typing at a fixed speed would race ahead, run dry, and stall. Instead a small buffer is kept (about 40 characters)
+   and the typing speed follows her smoothed output rate, changing gradually: the result is a steady, even flow.
+   Once her reply has ended (or the text was never streamed) the rest is typed at a calm fixed speed. */
+const MIN_CPS=25, MAX_CPS=260, END_CPS=110, BUF=40, PRE=25;
+let pending="", evq=[], lastT=0, acc=0, dirty=false, arrRate=60, speed=60, firstAt=0, gotNow=0;
 function pump(){
   while(evq.length){
     const e=evq[0];
-    if(e.kind==="token"){ pending+=e.text; evq.shift(); continue; }
+    if(e.kind==="token"){ pending+=e.text; gotNow+=e.text.length; evq.shift(); continue; }
     if(pending.length) break;          // let her finish typing before the next step appears
     evq.shift(); handle(e);
   }
 }
 function frame(t){
-  const dt=Math.min(t-(lastT||t),60); lastT=t;
-  pump();
+  const dt=Math.min(t-(lastT||t),100); lastT=t;
+  gotNow=0; pump();
+  const finishing=evq.length>0 && evq[0].kind!=="token";      // her reply has ended: only the tail is left
+  if(cur) arrRate+=(gotNow/Math.max(dt,1)*1000-arrRate)*Math.min(1,dt/2000);   // smoothed output rate
   if(pending.length){
-    if(!cur){ clearThink(); cur=botBubble(); curText=""; }
-    // reveal a share of the backlog each frame: a drip when little is waiting, a quick catch-up when a lot is
-    const n=Math.max(1,Math.ceil(pending.length*dt/140));
-    curText+=pending.slice(0,n); pending=pending.slice(n); dirty=true;
-  }
-  if(dirty && cur){ cur.innerHTML=md(curText); dirty=false; scroll(); }
+    if(!cur){                                                  // wait for a little lead so it starts smoothly
+      if(!firstAt) firstAt=t;
+      if(pending.length>=PRE || finishing || t-firstAt>350){ clearThink(); cur=botBubble(); curText=""; acc=0; arrRate=60; speed=60; firstAt=0; }
+    }
+    if(cur){
+      let target=finishing ? Math.max(END_CPS,pending.length/3) : arrRate*1.05+(pending.length-BUF)*0.8;
+      target=Math.max(MIN_CPS,Math.min(MAX_CPS,target));
+      speed+=(target-speed)*Math.min(1,dt/500);                // change speed gradually, never abruptly
+      acc+=dt/1000*speed;
+      let n=Math.floor(acc);
+      if(n>0){
+        acc-=n; n=Math.min(n,pending.length);
+        const c=pending.charCodeAt(n-1); if(c>=0xD800&&c<=0xDBFF&&n<pending.length) n++;   // never split an emoji
+        curText+=pending.slice(0,n); pending=pending.slice(n); dirty=true;
+      }
+    }
+  } else firstAt=0;
+  if(dirty && cur){ cur.innerHTML=md(heal(curText)); dirty=false; scroll(); }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
 function setBusy(b){
-  busy=b; $("stop").style.display=b?"":"none"; $("sub").textContent=b?"working…":(ready?$("sub").dataset.base:"starting…");
-  $("reset").disabled=b; $("models").disabled=b;
+  busy=b; $("stop").style.display=b?"":"none";
+  $("sub").textContent=b?"working…":(ready?($("sub").dataset.base||""):"starting…");
+  $("models").disabled=b; $("side").classList.toggle("locked",b);
   if(!b) clearThink();
 }
 
+/* ------------------------------------------------------------------ events from her */
 function handle(e){
   switch(e.kind){
     case "status": showBanner(e.text); break;
     case "ready":
-      ready=true; showBanner(""); $("sub").dataset.base=`${e.model} · ${e.tools} tools`; $("sub").textContent=busy?"working…":$("sub").dataset.base;
-      if(!log.children.length) hero(); loadModels(); break;
+      ready=true; showBanner(""); $("sub").dataset.base=`${e.model} · ${e.tools} tools`;
+      $("sub").textContent=busy?"working…":$("sub").dataset.base; loadModels(); loadChats(); break;
     case "fatal": showBanner("Could not start: "+e.text); $("sub").textContent="offline"; break;
-    case "user": userBubble(e.text,e.queued); break;
+    case "user": userBubble(e.text,e.queued,e.files); break;
     case "busy": setBusy(true); think(); break;
     case "thinking": endCur(); clearThink(); think(); break;
-    case "token":
-      break;   // tokens are fed to the typewriter by pump()
+    case "token": break;   // tokens are fed to the typewriter by pump()
     case "tool_call": {
-      endCur(); clearThink();
-      const d=document.createElement("details"); d.className="step"; d.id="s"+e.id;
-      d.innerHTML=`<summary><span class="n">→ ${esc(e.name)}</span> <span>${esc(e.args.slice(0,110))}</span></summary><pre></pre>`;
-      d.querySelector("pre").textContent=e.args; add(d); think(); break; }
+      endCur(); clearThink(); const d=stepEl(e.name,e.args,"",false); d.id="s"+e.id; add(d); think(); break; }
     case "tool_result": {
       const steps=log.querySelectorAll("details.step"); const d=steps[steps.length-1];
       if(d){ if(e.error) d.classList.add("err"); d.querySelector("pre").textContent+="\n\n"+e.result; }
       break; }
-    case "picture": {
-      const r=mk("row bot",`<img class="av" src="${AV}">`); const b=mk("bubble","");
-      const im=new Image(); im.className="pic"; im.alt=e.name; im.onload=scroll;
-      im.src="/file?t="+TOKEN+"&p="+encodeURIComponent(e.rel); b.appendChild(im); r.appendChild(b); add(r); break; }
+    case "picture": add(pictureRow(e.rel,e.name)); break;
     case "info": add(mk("note", ({skill:"📖 using her skill: ",steer:"↪ she read your message: ",check:"✓ double-checking the answer",
       nudge:"↻ nudging her to finish",condense:"⇣ memory is full, condensing",image:"👀 looking at an image"}[e.what]||"")+esc(e.text||""))); break;
     case "approval": {
@@ -233,24 +351,32 @@ function handle(e){
       const a=$("ap"+e.aid); if(a){a.classList.add("done"); const bt=a.querySelector(".btns");
         bt.textContent=({y:"✓ Allowed",a:"✓ Always allowed this session",n:"✗ Denied"})[e.answer]||""; }
       think(); break; }
-    case "done":
+    case "done": {
       clearThink();
-      if(cur && curText.trim()===e.answer.trim()){ endCur(); }
-      else { endCur(); if(e.answer.trim()){ const b=botBubble(); b.classList.remove("typing"); b.innerHTML=md(e.answer); } }
-      add(mk("meta",`${e.secs}s${e.stopped?" · stopped":""}`)); break;
+      const meta={kind:"meta",text:`${e.secs}s${e.stopped?" · stopped":""}`};
+      const typed=cur && (curText+pending).trim()===e.answer.trim();
+      if(typed){ evq.unshift(meta); }                       // she is still typing it: the time line follows
+      else {
+        endCur();
+        if(e.answer.trim()){ pending=e.answer; evq.unshift(meta); }   // not streamed: type it out the same way
+        else handle(meta);
+      }
+      break; }
+    case "meta": add(mk("meta",esc(e.text))); break;
     case "error": endCur(); add(mk("note","⚠ "+esc(e.text))); break;
     case "idle": endCur(); setBusy(false); inp.focus(); break;
-    case "reset": log.innerHTML=""; cur=null; pending=""; curText=""; hero(); break;
+    case "loaded": chatId=e.chat_id; renderTranscript(e.transcript||[]); markChat(); break;
+    case "chats": loadChats(); break;
   }
 }
 
+/* ------------------------------------------------------------------ talking to the server */
 function showBanner(t){const b=$("banner");b.textContent=t;b.style.display=t?"block":"none"}
 async function api(path,opt){
   opt=opt||{}; opt.headers=Object.assign({"X-Mochi-Token":TOKEN},opt.headers||{});
   return (await fetch(path,opt)).json();
 }
 function post(path,body){return api(path,{method:"POST",body:JSON.stringify(body),headers:{"Content-Type":"application/json"}})}
-
 async function loop(){
   for(;;){
     try{
@@ -271,20 +397,118 @@ $("models").onchange=async e=>{
   const r=await post("/model",{key}); if(r.status!=="ok") showBanner(r.status); else showBanner("");
   $("models").disabled=false; loadModels();
 };
+
+/* ------------------------------------------------------------------ saved chats (sidebar) */
+function dayGroup(ts){
+  const d=new Date(ts*1000), n=new Date(), a=new Date(n.getFullYear(),n.getMonth(),n.getDate()).getTime();
+  const t=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(), days=Math.round((a-t)/864e5);
+  return days<=0?"Today":days===1?"Yesterday":days<7?"Previous 7 days":days<30?"Previous 30 days":"Older";
+}
+async function loadChats(){
+  try{ const r=await api("/chats"); chatList=r.chats||[]; if(r.current) chatId=r.current; drawChats(); }catch(e){}
+}
+function markChat(){
+  const c=chatList.find(x=>x.id===chatId); $("ctitle").textContent=c?c.title:"New chat"; drawChats();
+}
+function drawChats(){
+  const q=$("q").value.trim().toLowerCase(), box=$("chatlist"); box.innerHTML="";
+  const c0=chatList.find(x=>x.id===chatId); $("ctitle").textContent=c0?c0.title:"New chat";
+  const list=chatList.filter(c=>!q||c.title.toLowerCase().includes(q));
+  if(!list.length){ box.appendChild(mk("empty",q?"No chats match.":"Your chats will be saved here, so you can come back to them later.")); return; }
+  let grp="";
+  list.forEach(c=>{
+    const g=dayGroup(c.updated); if(g!==grp){grp=g; box.appendChild(mk("grp",g))}
+    const el=mk("ci"+(c.id===chatId?" on":"")); const t=mk("t"); t.textContent=c.title; t.title=c.title; el.appendChild(t);
+    const acts=mk("acts"); const ren=document.createElement("button"); ren.textContent="✎"; ren.title="Rename";
+    const del=document.createElement("button"); del.textContent="✕"; del.title="Delete"; del.className="del";
+    acts.appendChild(ren); acts.appendChild(del); el.appendChild(acts);
+    el.onclick=()=>openChat(c.id);
+    ren.onclick=ev=>{ ev.stopPropagation(); startRename(el,t,c); };
+    let armed=null;
+    del.onclick=async ev=>{
+      ev.stopPropagation();
+      if(!armed){ del.classList.add("sure"); del.textContent="Delete?"; armed=setTimeout(()=>{armed=null;del.classList.remove("sure");del.textContent="✕"},3000); return; }
+      clearTimeout(armed); const r=await post("/chat/delete",{id:c.id}); if(r.status==="busy") showBanner("Wait until she finishes first.");
+    };
+    box.appendChild(el);
+  });
+}
+function startRename(el,t,c){
+  const i=document.createElement("input"); i.value=c.title; el.replaceChild(i,t); i.focus(); i.select();
+  i.onclick=e=>e.stopPropagation();
+  const done=async save=>{ if(save&&i.value.trim()&&i.value!==c.title) await post("/chat/rename",{id:c.id,title:i.value}); loadChats(); };
+  i.onkeydown=e=>{ if(e.key==="Enter") done(true); else if(e.key==="Escape") done(false); };
+  i.onblur=()=>done(true);
+}
+async function openChat(id){
+  if(id===chatId) { document.body.classList.remove("side"); return; }
+  const r=await post("/chat/open",{id});
+  if(r.status==="busy") showBanner("Wait until she finishes first."); else if(r.status!=="ok") showBanner("Could not open that chat: "+r.status);
+  else document.body.classList.remove("side");
+}
+$("newchat").onclick=async()=>{ const r=await post("/chat/new",{}); if(r.status==="busy") showBanner("Wait until she finishes first."); else document.body.classList.remove("side"); inp.focus(); };
+$("q").addEventListener("input",drawChats);
+$("burger").onclick=()=>document.body.classList.toggle("side");
+
+/* ------------------------------------------------------------------ attachments */
+function drawPending(){
+  const box=$("pend"); box.innerHTML="";
+  files.forEach((f,i)=>{
+    const el=mk("pf"+(f.state==="err"?" err":""));
+    if(f.state==="up") el.appendChild(mk("spin"));
+    else if(f.image&&f.rel){ const im=new Image(); im.src=fileUrl(f.rel); el.appendChild(im); }
+    else el.appendChild(document.createTextNode("📄"));
+    const n=mk("nm"); n.textContent=f.state==="err"?(f.name+": "+f.err):f.name; n.title=n.textContent; el.appendChild(n);
+    const x=document.createElement("button"); x.textContent="✕"; x.title="Remove"; x.onclick=()=>{files.splice(i,1);drawPending()}; el.appendChild(x);
+    box.appendChild(el);
+  });
+}
+async function uploadFile(f){
+  const item={name:f.name||("pasted-"+Date.now()+".png"),state:"up"}; files.push(item); drawPending();
+  try{
+    const r=await fetch("/upload?name="+encodeURIComponent(item.name),{method:"POST",body:f,headers:{"X-Mochi-Token":TOKEN}});
+    const j=await r.json(); if(j.error) throw new Error(j.error);
+    Object.assign(item,j,{state:"ok"});
+  }catch(e){ item.state="err"; item.err=String(e.message||e); }
+  drawPending();
+}
+function addFiles(list){ if(!ready){ showBanner("She is still waking up, one moment…"); return; } [...list].forEach(uploadFile); }
+$("clip").onclick=()=>$("pick").click();
+$("pick").onchange=e=>{ addFiles(e.target.files); e.target.value=""; };
+let dragDepth=0;
+window.addEventListener("dragenter",e=>{ if(e.dataTransfer&&[...e.dataTransfer.types].includes("Files")){dragDepth++;$("drop").style.display="flex"} });
+window.addEventListener("dragleave",()=>{ if(--dragDepth<=0){dragDepth=0;$("drop").style.display="none"} });
+window.addEventListener("dragover",e=>e.preventDefault());
+window.addEventListener("drop",e=>{ e.preventDefault(); dragDepth=0; $("drop").style.display="none"; if(e.dataTransfer.files.length) addFiles(e.dataTransfer.files); });
+inp.addEventListener("paste",e=>{ const fl=e.clipboardData&&e.clipboardData.files; if(fl&&fl.length){ e.preventDefault(); addFiles(fl); } });
+
 async function sendMsg(){
-  const text=inp.value.trim(); if(!text) return;
+  const text=inp.value.trim(); const ok=files.filter(f=>f.state==="ok");
+  if(files.some(f=>f.state==="up")){ showBanner("Still uploading your files…"); return; }
+  if(!text&&!ok.length) return;
   if(!ready){ showBanner("She is still waking up, one moment…"); return; }
+  showBanner("");
   inp.value=""; inp.style.height="auto"; stick=true;
-  const r=await post("/send",{text});
+  const rels=ok.map(f=>f.rel); files=[]; drawPending();
+  const r=await post("/send",{text,files:rels});
   if(r.status==="busy") showBanner("Wait until she finishes before doing that.");
 }
 $("send").onclick=sendMsg;
 $("stop").onclick=()=>post("/stop",{});
-$("reset").onclick=()=>{ if(confirm("Start a new conversation? She will forget this one.")) post("/send",{text:"/reset"}); };
 inp.addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMsg()} });
 inp.addEventListener("input",()=>{inp.style.height="auto";inp.style.height=Math.min(inp.scrollHeight,180)+"px"});
-api("/info").then(i=>{ if(!i.ready) $("sub").textContent="waking up…"; });
-hero(); loop(); inp.focus();
+
+/* ------------------------------------------------------------------ start */
+(async function boot(){
+  try{
+    const st=await api("/state"); since=st.since; ready=!!st.ready;
+    if(ready){ $("sub").dataset.base=`${st.model} · ${st.tools} tools`; $("sub").textContent=$("sub").dataset.base; loadModels(); }
+    else $("sub").textContent="waking up…";
+    chatId=st.chat_id; renderTranscript(st.transcript||[]); if(st.busy) setBusy(true);
+    await loadChats();
+  }catch(e){ showBanner("Could not reach her yet…"); }
+  loop(); inp.focus();
+})();
 </script>
 </body>
 </html>

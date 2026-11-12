@@ -22,9 +22,23 @@ class FakeAgent:
         self.policy = SimpleNamespace(workspace=ws, resolve=lambda p: (ws / p) if not str(p).startswith("/") else ws / p,
                                       is_denied=lambda p: p.name.startswith("secret"), session_allowed={"x"})
         self.reset_called = False
+        self.messages = [{"role": "system", "content": "sys"}]
 
-    def run(self, text):
+    def system_message(self):
+        return {"role": "system", "content": "sys"}
+
+    def attach_note(self, paths):
+        return "(attached: " + ", ".join(p.name for p in paths) + ")", []
+
+    def run(self, text, attachments=None):
+        answer = self._go(text, attachments)
+        self.messages += [{"role": "user", "content": text}, {"role": "assistant", "content": answer}]
+        return answer
+
+    def _go(self, text, attachments=None):
         self.stop.clear()
+        if attachments:
+            return "saw " + ", ".join(p.name for p in attachments)
         if text == "ask":
             ans = self.app.approve("write_outside", "Write C:/x")
             return f"approval was {ans}"
@@ -58,14 +72,14 @@ def gui(tmp_path):
     h = {"X-Mochi-Token": app.token}
     app.start_agent()
     for _ in range(100):
-        if app.agent:
+        if app.agent and app.store:
             break
         time.sleep(0.02)
     yield app, base, h
     srv.shutdown()
 
 
-def poll(base, h, since=0, until=None, tries=60):
+def poll(base, h, since=0, until=None, tries=4):
     seen = []
     for _ in range(tries):
         evs = httpx.get(f"{base}/poll?since={since}", headers=h, timeout=30).json()["events"]
@@ -145,3 +159,84 @@ def test_reset_command_and_busy_guard(gui):
     assert httpx.post(f"{base}/send", headers=h, json={"text": "/reset"}).json()["status"] == "ok"
     assert app.agent.reset_called
     assert httpx.post(f"{base}/send", headers=h, json={"text": "  "}).json()["status"] == "empty"
+
+
+def test_upload_then_send_with_files(gui):
+    app, base, h = gui
+    r = httpx.post(f"{base}/upload?name=my%20photo.png", headers=h, content=b"PNG data here")
+    info = r.json()
+    assert r.status_code == 200 and info["rel"] == "uploads/my photo.png" and info["image"] is True
+    again = httpx.post(f"{base}/upload?name=my%20photo.png", headers=h, content=b"zzz").json()
+    assert again["rel"] == "uploads/my photo (2).png"                       # never overwrites
+    evil = httpx.post(f"{base}/upload?name=..%2F..%2Fevil.txt", headers=h, content=b"x").json()
+    assert evil["rel"] == "uploads/evil.txt"                                # path tricks are flattened
+    assert httpx.post(f"{base}/upload?name=a.txt", content=b"x").status_code == 403   # token required
+    st = httpx.post(f"{base}/send", headers=h, json={"text": "", "files": [info["rel"], "../outside.txt"]}).json()
+    assert st["status"] == "started"                                        # a file alone is a valid message
+    evs = poll(base, h, until="done")
+    user = [e for e in evs if e["kind"] == "user"][0]
+    assert user["files"] == [{"name": "my photo.png", "rel": "uploads/my photo.png", "image": True}]
+    assert [e for e in evs if e["kind"] == "done"][0]["answer"] == "saw my photo.png"
+
+
+def wait_idle(base, h, since):
+    return poll(base, h, since=since, until="idle")
+
+
+def test_chats_are_saved_listed_reopened_with_her_memory(gui):
+    app, base, h = gui
+    assert httpx.get(f"{base}/chats", headers=h).json() == {"chats": [], "current": None}
+    httpx.post(f"{base}/send", headers=h, json={"text": "plan my trip to Pokhara"})
+    wait_idle(base, h, 0)
+    chats = httpx.get(f"{base}/chats", headers=h).json()
+    assert len(chats["chats"]) == 1 and chats["chats"][0]["title"] == "plan my trip to Pokhara"
+    first_id = chats["current"]
+    assert first_id == chats["chats"][0]["id"]
+    # a second, separate chat
+    assert httpx.post(f"{base}/chat/new", headers=h, json={}).json()["status"] == "ok"
+    assert app.agent.reset_called and app.transcript == []
+    httpx.post(f"{base}/send", headers=h, json={"text": "something else"})
+    wait_idle(base, h, 0)
+    assert len(httpx.get(f"{base}/chats", headers=h).json()["chats"]) == 2
+    # reopen the first: she gets her old messages back, the page gets the old transcript
+    assert httpx.post(f"{base}/chat/open", headers=h, json={"id": first_id}).json()["status"] == "ok"
+    texts = [m["content"] for m in app.agent.messages]
+    assert "plan my trip to Pokhara" in texts and "something else" not in texts and app.agent.messages[0]["role"] == "system"
+    st = httpx.get(f"{base}/state", headers=h).json()
+    assert st["chat_id"] == first_id and any(i["t"] == "user" and i["text"] == "plan my trip to Pokhara" for i in st["transcript"])
+    assert any(i["t"] == "bot" and i["text"] == "hello plan my trip to Pokhara" for i in st["transcript"])
+    # continuing the old chat saves into the same file, not a new one
+    httpx.post(f"{base}/send", headers=h, json={"text": "and hotels?"})
+    wait_idle(base, h, 0)
+    assert len(httpx.get(f"{base}/chats", headers=h).json()["chats"]) == 2
+    assert "and hotels?" in [m["content"] for m in app.store.load(first_id)["messages"]]
+
+
+def test_rename_delete_and_bad_ids(gui):
+    app, base, h = gui
+    httpx.post(f"{base}/send", headers=h, json={"text": "hello"})
+    wait_idle(base, h, 0)
+    cid = httpx.get(f"{base}/chats", headers=h).json()["current"]
+    assert httpx.post(f"{base}/chat/rename", headers=h, json={"id": cid, "title": "  Trip   notes "}).json()["status"] == "ok"
+    assert httpx.get(f"{base}/chats", headers=h).json()["chats"][0]["title"] == "Trip notes"
+    for bad in ("../x", "", "a/b", "nope-nope-nope"):
+        assert httpx.post(f"{base}/chat/open", headers=h, json={"id": bad}).json()["status"] == "not found"
+        assert httpx.post(f"{base}/chat/delete", headers=h, json={"id": bad}).json()["status"] == "not found"
+    assert httpx.post(f"{base}/chat/delete", headers=h, json={"id": cid}).json()["status"] == "ok"
+    assert httpx.get(f"{base}/chats", headers=h).json() == {"chats": [], "current": None}
+    assert app.transcript == [] and app.chat_id is None
+
+
+def test_history_is_locked_while_she_works_and_images_are_not_saved(gui):
+    app, base, h = gui
+    httpx.post(f"{base}/send", headers=h, json={"text": "slow"})
+    time.sleep(0.2)
+    assert httpx.post(f"{base}/chat/new", headers=h, json={}).json()["status"] == "busy"
+    httpx.post(f"{base}/stop", headers=h, json={})
+    wait_idle(base, h, 0)
+    from agent.history import clean_messages
+    msgs = [{"role": "system", "content": "s"},
+            {"role": "user", "content": [{"type": "text", "text": "[Attached image: a.png]"},
+                                         {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}}]}]
+    cleaned = clean_messages(msgs)
+    assert len(cleaned) == 1 and "AAAA" not in str(cleaned) and "a.png" in cleaned[0]["content"]
