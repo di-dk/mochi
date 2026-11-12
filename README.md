@@ -64,6 +64,8 @@ your browser. The window talks to a local server on 127.0.0.1 protected by a ran
 with search, rename and delete. Open an old chat and she remembers it: her own message history is restored, so you
 can carry on without explaining everything again. Chats stay on your PC.
 
+**Color themes.** The palette button in the window header switches between Auto (follows Windows), Mochi dark, Mochi light, Sakura, Lavender, Mint, Midnight blue, Ocean, Forest, Sunset and Graphite. Your choice is kept in `config.local.yaml` (`ui.theme`).
+
 ### Attaching files
 
 Photos, videos, PDF, Word, Excel/CSV, text and code, audio and zip files all work.
@@ -75,6 +77,23 @@ Photos, videos, PDF, Word, Excel/CSV, text and code, audio and zip files all wor
 Files are copied into her workspace (`workspace/uploads/`) and summarised for her: photos and a few frames of each
 video are shown to a vision model, PDFs, documents and spreadsheets are previewed, and she can open anything in
 more depth with her tools. She cannot hear audio. Credential files are refused.
+
+## Antivirus says Mochi is a trojan
+
+Mochi is unsigned open-source software that runs scripts, drives your browser and controls windows, so some antivirus
+programs are suspicious of it. The most common report is **`Trojan.Loader`** (seen with Malwarebytes) on the desktop
+shortcut. That is a false positive on the *shortcut*, not on Mochi's code: older versions of `setup.ps1` made a
+shortcut that started `cmd.exe` or Windows Terminal with a command line, which is a shape malware often uses.
+
+Current versions create shortcuts that point straight at `mochi.cmd` / `mochi-window.cmd` with no arguments. If you
+installed an older version, **run `setup.ps1` again** (it replaces the old shortcuts), or delete the two Mochi
+shortcuts and launch with `mochi` / `.\mochi.cmd` / `.\mochi-window.cmd`.
+
+If your antivirus still quarantines something:
+- Look at which file it names. Everything Mochi runs is plain text you can read in this repository.
+- If you trust the copy you downloaded, restore the item and allow only the Mochi folder (not whole drives), then
+  report it as a false positive to the vendor so it stops happening for everyone.
+- Do not switch your antivirus off. Mochi does not need that.
 
 ## How she works and learns
 

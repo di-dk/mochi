@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" __THEMEATTR__>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,12 +7,32 @@
 <style>
 :root{
   --bg:#17121c; --panel:#201929; --panel2:#2a2136; --line:#3a2f48; --text:#f1eaf7; --dim:#a79bb6;
-  --pink:#ff7eb6; --pink2:#d94f93; --green:#5fd6a0; --red:#ff6b7a; --yellow:#ffc857; --code:#120e17; --side:#1b1522;
+  --pink:#ff7eb6; --pink2:#c23d82; --green:#5fd6a0; --red:#ff6b7a; --yellow:#ffc857; --code:#120e17; --side:#1b1522;
 }
+/* Themes. No data-theme = "Auto": the pink theme, light or dark to match Windows. --pink / --pink2 are the accent colours. */
 @media (prefers-color-scheme: light){
-  :root{ --bg:#fbf6fb; --panel:#ffffff; --panel2:#f4eaf4; --line:#e6d6e6; --text:#2a1f33; --dim:#7b6c88;
+  :root:not([data-theme]){ --bg:#fbf6fb; --panel:#ffffff; --panel2:#f4eaf4; --line:#e6d6e6; --text:#2a1f33; --dim:#7b6c88;
          --pink:#d94f93; --pink2:#b83a7a; --green:#1f9d6a; --red:#d6334a; --yellow:#b27a00; --code:#f1e7f1; --side:#f6edf6; }
 }
+[data-theme="mochi-dark"]{ color-scheme:dark; }
+[data-theme="mochi-light"]{ color-scheme:light; --bg:#fbf6fb; --panel:#ffffff; --panel2:#f4eaf4; --line:#e6d6e6; --text:#2a1f33; --dim:#7b6c88;
+  --pink:#d94f93; --pink2:#b83a7a; --green:#1f9d6a; --red:#d6334a; --yellow:#b27a00; --code:#f1e7f1; --side:#f6edf6; }
+[data-theme="midnight"]{ color-scheme:dark; --bg:#0d1424; --panel:#131c30; --panel2:#1b2742; --line:#2a3a5e; --text:#e6edfb; --dim:#8fa1c4;
+  --pink:#6cb2ff; --pink2:#2468c9; --green:#5fd6a0; --red:#ff6b7a; --yellow:#ffc857; --code:#0a101c; --side:#0f192b; }
+[data-theme="forest"]{ color-scheme:dark; --bg:#0f1a14; --panel:#16241c; --panel2:#1f3328; --line:#2f4a3a; --text:#e8f3ea; --dim:#97b3a0;
+  --pink:#74d68a; --pink2:#25834a; --green:#9be3a8; --red:#ff7a7a; --yellow:#ffd166; --code:#0a120d; --side:#121f18; }
+[data-theme="sunset"]{ color-scheme:dark; --bg:#1c1210; --panel:#281a16; --panel2:#35231d; --line:#553629; --text:#fbeee6; --dim:#c0a090;
+  --pink:#ffa05c; --pink2:#c24f1c; --green:#7ad6a0; --red:#ff6b6b; --yellow:#ffd166; --code:#140c0a; --side:#22150f; }
+[data-theme="ocean"]{ color-scheme:dark; --bg:#08191d; --panel:#0e262c; --panel2:#153540; --line:#21505c; --text:#e3f6f8; --dim:#8cb7bf;
+  --pink:#4fd8d0; --pink2:#0b7f79; --green:#7be0a8; --red:#ff7a7a; --yellow:#ffd166; --code:#05100f; --side:#0b2025; }
+[data-theme="lavender"]{ color-scheme:light; --bg:#f5f2fc; --panel:#ffffff; --panel2:#ece6f9; --line:#dcd2f2; --text:#2b2442; --dim:#7a6fa0;
+  --pink:#7c5cd6; --pink2:#6a47c9; --green:#1f9d6a; --red:#d6334a; --yellow:#b27a00; --code:#ece6f9; --side:#efeafa; }
+[data-theme="mint"]{ color-scheme:light; --bg:#f0faf6; --panel:#ffffff; --panel2:#e0f4ec; --line:#c8e8da; --text:#1c3029; --dim:#5f8574;
+  --pink:#1f9d78; --pink2:#14805f; --green:#1f9d6a; --red:#d6334a; --yellow:#b27a00; --code:#e0f4ec; --side:#e8f6f0; }
+[data-theme="sakura"]{ color-scheme:light; --bg:#fff5f7; --panel:#ffffff; --panel2:#ffe8ee; --line:#f6cdd8; --text:#3a2229; --dim:#a07080;
+  --pink:#e8648a; --pink2:#c9305f; --green:#1f9d6a; --red:#c9302c; --yellow:#b27a00; --code:#ffe8ee; --side:#fff0f3; }
+[data-theme="graphite"]{ color-scheme:dark; --bg:#121212; --panel:#1b1b1b; --panel2:#262626; --line:#3a3a3a; --text:#ededed; --dim:#9a9a9a;
+  --pink:#d0d0d0; --pink2:#5c5c5c; --green:#7ad6a0; --red:#ff6b6b; --yellow:#ffd166; --code:#0c0c0c; --side:#171717; }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--text);font:15px/1.55 "Segoe UI",system-ui,sans-serif;display:flex;overflow:hidden}
@@ -116,6 +136,14 @@ textarea:focus{border-color:var(--pink)}
 .pf button{border:none;background:none;padding:0 4px;color:var(--dim)}
 .pf .spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--pink);border-radius:50%;animation:r .8s linear infinite}
 @keyframes r{to{transform:rotate(360deg)}}
+#themes{display:none;position:absolute;right:0;top:40px;z-index:30;background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:8px;width:230px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+#themes.open{display:block}
+#themes .th{display:flex;align-items:center;gap:10px;width:100%;border:none;background:none;border-radius:8px;padding:6px 8px;text-align:left}
+#themes .th:hover{background:var(--panel2)}
+#themes .th.on{box-shadow:inset 0 0 0 2px var(--pink)}
+#themes .sw{width:34px;height:22px;border-radius:7px;border:1px solid var(--line);display:flex;overflow:hidden;flex:none}
+#themes .sw i{flex:1}
 #banner{display:none;background:var(--panel2);color:var(--yellow);text-align:center;padding:6px;font-size:13px}
 #drop{display:none;position:fixed;inset:0;background:rgba(23,18,28,.82);z-index:20;align-items:center;justify-content:center;
   color:#fff;font-size:22px;border:3px dashed var(--pink);margin:10px;border-radius:18px}
@@ -142,6 +170,10 @@ textarea:focus{border-color:var(--pink)}
     <button id="burger" title="Chats">☰</button>
     <div class="t"><b id="ctitle">New chat</b><span id="sub">starting…</span></div>
     <div class="sp"></div>
+    <div style="position:relative">
+      <button id="themebtn" title="Color theme">🎨</button>
+      <div id="themes"></div>
+    </div>
     <select id="models" title="Model" style="max-width:260px"></select>
     <button id="stop" class="danger" style="display:none">■ Stop</button>
   </header>
@@ -450,6 +482,42 @@ $("newchat").onclick=async()=>{ const r=await post("/chat/new",{}); if(r.status=
 $("q").addEventListener("input",drawChats);
 $("burger").onclick=()=>document.body.classList.toggle("side");
 
+/* ------------------------------------------------------------------ colour themes */
+const THEMES=[
+  {id:"auto",name:"Auto (follows Windows)",c:["#17121c","#ff7eb6","#fbf6fb"]},
+  {id:"mochi-dark",name:"Mochi dark",c:["#17121c","#c23d82","#ff7eb6"]},
+  {id:"mochi-light",name:"Mochi light",c:["#fbf6fb","#b83a7a","#d94f93"]},
+  {id:"sakura",name:"Sakura",c:["#fff5f7","#c9305f","#e8648a"]},
+  {id:"lavender",name:"Lavender",c:["#f5f2fc","#6a47c9","#7c5cd6"]},
+  {id:"mint",name:"Mint",c:["#f0faf6","#14805f","#1f9d78"]},
+  {id:"midnight",name:"Midnight blue",c:["#0d1424","#2468c9","#6cb2ff"]},
+  {id:"ocean",name:"Ocean",c:["#08191d","#0b7f79","#4fd8d0"]},
+  {id:"forest",name:"Forest",c:["#0f1a14","#25834a","#74d68a"]},
+  {id:"sunset",name:"Sunset",c:["#1c1210","#c24f1c","#ffa05c"]},
+  {id:"graphite",name:"Graphite",c:["#121212","#5c5c5c","#d0d0d0"]},
+];
+let theme="auto";
+function applyTheme(id,save){
+  if(!THEMES.some(t=>t.id===id)) id="auto";
+  theme=id;
+  if(id==="auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme",id);
+  drawThemes();
+  if(save) post("/theme",{name:id});
+}
+function drawThemes(){
+  const box=$("themes"); box.innerHTML="";
+  THEMES.forEach(t=>{
+    const b=document.createElement("button"); b.className="th"+(t.id===theme?" on":"");
+    b.innerHTML=`<span class="sw">${t.c.map(c=>`<i style="background:${c}"></i>`).join("")}</span><span>${esc(t.name)}</span>`;
+    b.onclick=()=>{ applyTheme(t.id,true); box.classList.remove("open"); };
+    box.appendChild(b);
+  });
+}
+$("themebtn").onclick=e=>{ e.stopPropagation(); $("themes").classList.toggle("open"); };
+document.addEventListener("click",e=>{ if(!$("themes").contains(e.target)) $("themes").classList.remove("open"); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") $("themes").classList.remove("open"); });
+drawThemes();
+
 /* ------------------------------------------------------------------ attachments */
 function drawPending(){
   const box=$("pend"); box.innerHTML="";
@@ -504,6 +572,7 @@ inp.addEventListener("input",()=>{inp.style.height="auto";inp.style.height=Math.
     const st=await api("/state"); since=st.since; ready=!!st.ready;
     if(ready){ $("sub").dataset.base=`${st.model} · ${st.tools} tools`; $("sub").textContent=$("sub").dataset.base; loadModels(); }
     else $("sub").textContent="waking up…";
+    applyTheme(st.theme||"auto",false);
     chatId=st.chat_id; renderTranscript(st.transcript||[]); if(st.busy) setBusy(true);
     await loadChats();
   }catch(e){ showBanner("Could not reach her yet…"); }
