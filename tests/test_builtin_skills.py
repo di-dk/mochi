@@ -10,7 +10,7 @@ FOREIGN = re.compile(r"\b(web_extract|delegate_task|skill_view|execute_code|cron
 
 
 def test_builtin_skills_fit_the_index():
-    assert len(FILES) <= 40, "skills_index only lists the first 40 skills to the model"
+    assert len(FILES) <= 48, "skills_index only lists the first 48 skills to the model"
     listed = skills_index(Path("no-such-workspace"))
     for f in FILES:
         assert f"- {f.stem}:" in listed

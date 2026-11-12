@@ -51,7 +51,7 @@ def all_skills(ws: Path) -> list[dict]:
     return out
 
 
-def skills_index(ws: Path, limit: int = 40) -> str:
+def skills_index(ws: Path, limit: int = 48) -> str:
     sk = all_skills(ws)[:limit]
     return "\n".join(f"- {s['name']}: {s['description']}" for s in sk)
 
@@ -369,3 +369,5 @@ def add_extra_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
     add_auto_tools(reg, policy, cfg)
     from .tools_video import add_video_tools
     add_video_tools(reg, policy, cfg)
+    from .tools_more import add_more_tools
+    add_more_tools(reg, policy, cfg)
