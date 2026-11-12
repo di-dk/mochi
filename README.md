@@ -54,38 +54,27 @@ mochi "make a PDF about the history of Brussels" # one-shot task
 mochi --gui        # or double-click mochi-window.cmd
 ```
 
-A native chat window with her avatar, chat bubbles, streamed answers, collapsible tool steps, pictures she makes,
-a model picker, **New chat** and **Stop** buttons, and Allow / Always / Deny buttons for approvals. It is the same
-agent with the same settings and safety rules as the terminal, which keeps working as before. You can keep typing
-while she works. It uses `pywebview` (Edge WebView2, already part of Windows 11); without it she opens in your
-browser. The window talks to a local server on 127.0.0.1 protected by a random per-run token.
+A native chat window with her avatar, chat bubbles, a steady typewriter for every reply, collapsible tool steps,
+pictures she makes, a model picker, a **Stop** button, and Allow / Always / Deny buttons for approvals. It is the
+same agent with the same settings and safety rules as the terminal, which keeps working as before. You can keep
+typing while she works. It uses `pywebview` (Edge WebView2, already part of Windows 11); without it she opens in
+your browser. The window talks to a local server on 127.0.0.1 protected by a random per-run token.
 
-The launcher starts LM Studio's server and loads the model if needed (first load ≈ 1 min).
+**Saved chats.** Every conversation is saved (in `workspace/chats/`) and listed in the sidebar, grouped by day,
+with search, rename and delete. Open an old chat and she remembers it: her own message history is restored, so you
+can carry on without explaining everything again. Chats stay on your PC.
 
-Try:
-- "Search the web for the best budget mechanical keyboards and save a comparison as keyboards.pdf"
-- "Generate 3 images of a cozy cabin in snow and put them in cabins.pdf"
-- "Every Monday at 9:00, search for AI news and save a summary"
-- "Remember that I prefer short answers"
-- "Open Calculator and work out 12 + 30 with its buttons" (app control, no mouse)
-- "Open example.com in your browser, take a screenshot and tell me what you see" (vision model)
-- "Turn sales.xlsx into a Word report with a summary table"
+### Attaching files
 
-Everything she creates goes into `workspace\`. Ctrl+C interrupts.
+Photos, videos, PDF, Word, Excel/CSV, text and code, audio and zip files all work.
 
-**Talk to her while she works.** You don't have to wait for her to finish: type a message and press Enter
-at any time ("also compare prices", "skip the images", "answer in Dutch"). She reads it before her next step
-and adjusts without starting over. Type `/stop` to make her stop; it also cuts off an answer she is still writing.
+- **Window:** the paperclip button, drag and drop anywhere, or paste an image.
+- **Terminal:** type `@path` in your message (`@"path with spaces"` also works, and so does dragging a file into the
+  terminal), or `mochi "what is in this?" --file photo.jpg`.
 
-| Chat command | |
-|---|---|
-| `/models` | list LM Studio models (size, tool + vision support) |
-| `/model <n or name>` | switch model now (frees VRAM, remembers the choice) |
-| `/reset` · `/tools` · `/allowed` · `/exit` | new conversation · list tools · session approvals · quit |
-
-`mochi --model <name> "task"` uses a model for one run only.
-`mochi --bench` times every tool-capable model you have (cold start, a tool-choice step, a summary) so you can
-pick the fastest one that still chooses the right tool; `mochi --bench gemma qwen` limits it to matching names.
+Files are copied into her workspace (`workspace/uploads/`) and summarised for her: photos and a few frames of each
+video are shown to a vision model, PDFs, documents and spreadsheets are previewed, and she can open anything in
+more depth with her tools. She cannot hear audio. Credential files are refused.
 
 ## How she works and learns
 

@@ -2,6 +2,7 @@
 
   mochi                       interactive chat
   mochi "do something"        run one task interactively, then exit
+  mochi "look at @pic.jpg"    attach files with @path or --file (photos, videos, PDF, Word, Excel, text...)
   mochi --gui                 her own chat window (same agent, same settings)
   mochi --unattended --task-file f.txt   (used by scheduled tasks; approvals are refused)
   mochi --bench [name ...]    time the installed models and show which is fastest
@@ -154,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--task-file", help="read the task from a file")
     ap.add_argument("--config", help="path to config.yaml")
     ap.add_argument("--model", help="use this LM Studio model for this run only (see /models)")
+    ap.add_argument("-f", "--file", action="append", default=[], metavar="PATH",
+                    help="attach a file (photo, video, PDF, Word, Excel, text...); repeat for several")
     ap.add_argument("--gui", action="store_true", help="open Mochi in her own chat window")
     ap.add_argument("--bench", nargs="*", metavar="NAME",
                     help="time the installed tool-capable models (optionally only those matching NAME) and exit")
@@ -199,6 +202,7 @@ def main(argv: list[str] | None = None) -> int:
     console.print(Panel.fit(
         f"[bold magenta]🍡 {cfg['agent']['name']}[/] · model [cyan]{cfg['llm']['model']}[/] · workspace [green]{agent.policy.workspace}[/]\n"
         f"{len(agent.registry.tools)} tools · commands: /models  /model <n>  /reset  /tools  /allowed  /exit\n"
+        f"[dim]Attach files: type @path, or drag a file in (photos, videos, PDF, Word, Excel, text...).[/]\n"
         f"[dim]While she works: type a message + Enter to add to the task, /stop to stop her.[/]",
         border_style="magenta"))
 
@@ -245,11 +249,16 @@ def main(argv: list[str] | None = None) -> int:
         agent.messages[0] = agent.system_message()
         console.print(f"[magenta]🍡 Now using [bold]{key}[/]. Saved as default in config.local.yaml.[/]")
 
-    def handle(text: str) -> None:
+    def handle(text: str, files: list | None = None) -> None:
+        from . import attach
+        text, found = attach.extract_paths(text)
+        files = list(files or []) + found
+        if files:
+            console.print("[magenta]📎 attached:[/] " + ", ".join(Path(f).name for f in files))
         t0 = time.time()
         kb.busy = True
         try:
-            answer = agent.run(text)
+            answer = agent.run(text, attachments=files or None)
         except KeyboardInterrupt:
             console.print("[red]Interrupted.[/]"); return
         except Exception as e:  # noqa: BLE001
@@ -265,8 +274,8 @@ def main(argv: list[str] | None = None) -> int:
                                 border_style="magenta"))
         _live["text"] = ""
 
-    if task:
-        handle(task)
+    if task or args.file:
+        handle(task, args.file)
         return 0
     while True:
         try:
