@@ -2,6 +2,7 @@
 
   mochi                       interactive chat
   mochi "do something"        run one task interactively, then exit
+  mochi --gui                 her own chat window (same agent, same settings)
   mochi --unattended --task-file f.txt   (used by scheduled tasks; approvals are refused)
   mochi --bench [name ...]    time the installed models and show which is fastest
 
@@ -78,7 +79,7 @@ class Keyboard:
         self.asking = True
         try:
             while True:
-                console.print("[yellow]Allow?[/] [y]es / [n]o / [a]lways this session (n): ", end="")
+                console.print("[yellow]Allow?[/] \\[y]es / \\[n]o / \\[a]lways this session (n): ", end="")
                 while True:
                     try:
                         answer = (self.answers.get(timeout=0.2) or "n").lower()
@@ -92,7 +93,33 @@ class Keyboard:
             self.asking = False
 
 
+_live = {"text": "", "open": False, "on": True}   # the reply currently being written on screen
+
+
+def _close_live() -> None:
+    if _live["open"]:
+        console.print()
+        _live["open"] = False
+
+
 def interactive_events(kind: str, data: dict) -> None:
+    if kind == "token":                          # show her reply while she writes it
+        if not _live["on"]:
+            return
+        if not _live["open"]:
+            console.print("\n[magenta]🍡[/] ", end="")
+            _live["open"] = True
+        _live["text"] += data["text"]
+        console.print(data["text"], end="", markup=False, highlight=False, soft_wrap=True)
+        return
+    if kind == "thinking":
+        _close_live()
+        _live["text"] = ""
+        return
+    if kind == "note" and _live["text"].strip() == data["text"].strip():
+        _close_live()                            # already shown live
+        return
+    _close_live()
     if kind == "tool_call":
         args = data["args"] if len(data["args"]) < 300 else data["args"][:300] + "…"
         console.print(f"[cyan]→ {data['name']}[/] [dim]{args}[/]")
@@ -127,6 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--task-file", help="read the task from a file")
     ap.add_argument("--config", help="path to config.yaml")
     ap.add_argument("--model", help="use this LM Studio model for this run only (see /models)")
+    ap.add_argument("--gui", action="store_true", help="open Mochi in her own chat window")
     ap.add_argument("--bench", nargs="*", metavar="NAME",
                     help="time the installed tool-capable models (optionally only those matching NAME) and exit")
     args = ap.parse_args(argv)
@@ -135,6 +163,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.model:
         cfg["llm"]["model"] = args.model
     task = Path(args.task_file).read_text(encoding="utf-8") if args.task_file else " ".join(args.task)
+    if args.gui:
+        from .gui import run_gui
+        return run_gui(cfg)
     if args.bench is not None:
         from .bench import run_bench
         return run_bench(cfg, args.bench, console)
@@ -161,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
 
     with console.status("Checking LM Studio..."):
         ensure_llm(cfg, log=lambda s: console.print(f"[dim]{s}[/]"))
+    _live["on"] = bool((cfg.get("ui") or {}).get("stream_answer", True))
     kb = Keyboard()
     agent = Agent(cfg, make_policy(cfg, approver=kb.approve), on_event=interactive_events)
     kb.agent = agent
@@ -224,7 +256,14 @@ def main(argv: list[str] | None = None) -> int:
             console.print(f"[red]Error: {type(e).__name__}: {e}[/]"); return
         finally:
             kb.busy = False
-        console.print(Panel(Markdown(answer), title=f"{cfg['agent']['name']} · {time.time() - t0:.0f}s", border_style="magenta"))
+        shown = _live["open"] and _live["text"].strip() == answer.strip()
+        _close_live()
+        if shown:                                # she already wrote it on screen: just close it off
+            console.rule(f"[magenta]{cfg['agent']['name']} · {time.time() - t0:.0f}s", style="magenta")
+        else:
+            console.print(Panel(Markdown(answer), title=f"{cfg['agent']['name']} · {time.time() - t0:.0f}s",
+                                border_style="magenta"))
+        _live["text"] = ""
 
     if task:
         handle(task)

@@ -48,6 +48,18 @@ mochi "make a PDF about the history of Brussels" # one-shot task
 
 (Without the PATH step, use `.\mochi.cmd` from the Mochi folder.)
 
+### Her own window
+
+```powershell
+mochi --gui        # or double-click mochi-window.cmd
+```
+
+A native chat window with her avatar, chat bubbles, streamed answers, collapsible tool steps, pictures she makes,
+a model picker, **New chat** and **Stop** buttons, and Allow / Always / Deny buttons for approvals. It is the same
+agent with the same settings and safety rules as the terminal, which keeps working as before. You can keep typing
+while she works. It uses `pywebview` (Edge WebView2, already part of Windows 11); without it she opens in your
+browser. The window talks to a local server on 127.0.0.1 protected by a random per-run token.
+
 The launcher starts LM Studio's server and loads the model if needed (first load ≈ 1 min).
 
 Try:

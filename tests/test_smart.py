@@ -203,8 +203,8 @@ def test_message_arriving_during_the_final_answer_is_not_lost(env):
     agent, seen = make_agent(env, [("first answer", []), ("revised answer", [])])
     real = agent._complete
 
-    def complete(kwargs):
-        out = real(kwargs)
+    def complete(kwargs, quiet=False):
+        out = real(kwargs, quiet)
         if len(seen) == 1:
             agent.inbox.put("also mention the price")
         return out
@@ -266,3 +266,15 @@ def test_typed_lines_go_to_the_right_place(env):
     kb.asking = True
     kb.route("y")                                         # an open approval question wins over everything
     assert "y" in list(kb.answers.queue) and agent.inbox.empty()
+
+
+def test_approval_prompt_shows_every_answer_letter(capsys):
+    """Rich eats unescaped [y] / [n] / [a] as style tags, which once printed 'es / o / lways'."""
+    import queue as q
+    from agent import cli
+    cli.console.file = None            # use the real stdout so capsys sees it
+    kb = cli.Keyboard.__new__(cli.Keyboard)
+    kb.answers = q.Queue(); kb.answers.put("y"); kb.asking = False
+    assert kb.approve("write", "Write a file") == "y"
+    out = capsys.readouterr().out
+    assert "[y]es" in out and "[n]o" in out and "[a]lways" in out

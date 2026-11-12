@@ -20,7 +20,8 @@ GROUPS: dict[str, set[str]] = {
     "media": {"comfy_status", "comfy_list_models", "comfy_txt2img", "comfy_run_workflow", "image_edit",
               "view_image", "media_convert", "media_info", "make_video", "list_my_videos"},
     "system": {"schedule_task", "list_scheduled_tasks", "delete_scheduled_task", "system_info", "list_processes",
-               "kill_process", "notify", "zip_files", "unzip"},
+               "kill_process", "notify", "zip_files", "unzip", "speak", "weather", "disk_usage",
+               "find_duplicates"},
 }
 GROUP_HELP = {
     "code": "run PowerShell commands and Python code",
@@ -28,7 +29,7 @@ GROUP_HELP = {
     "desktop": "Windows apps and windows: launch, inspect, click, type, hotkeys, screenshots, clipboard",
     "docs": "create and read PDF, Word and Excel/CSV files",
     "media": "ComfyUI images, image editing, viewing images, ffmpeg audio/video, make_video",
-    "system": "scheduled tasks, notifications, processes, system info, zip/unzip",
+    "system": "scheduled tasks, notifications, processes, system info, zip/unzip, speak aloud, weather, disk usage, duplicate files",
 }
 # Words in a request that load a group straight away (whole words, lower case).
 KEYWORDS: dict[str, set[str]] = {
@@ -46,7 +47,8 @@ KEYWORDS: dict[str, set[str]] = {
               "crop", "thumbnail", "wallpaper", "quiz", "short", "shorts"},
     "system": {"schedule", "scheduled", "every", "daily", "weekly", "hourly", "remind", "reminder", "monitor",
                "watch", "alert", "notify", "process", "processes", "cpu", "ram", "disk", "gpu", "zip", "unzip",
-               "battery"},
+               "battery", "weather", "forecast", "temperature", "speak", "aloud", "voice", "duplicate",
+               "duplicates", "storage", "space"},
 }
 STOP = set("""a an and are as at be but by can could do does for from get give go has have help how i if in into is it
 its just let like make me my need of on one or our out please put she should show so some tell that the their them

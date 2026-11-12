@@ -322,8 +322,9 @@ class Agent:
                 break
             del self.messages[1:idx]
 
-    def _complete(self, kwargs: dict) -> tuple[str, list[dict]]:
-        """One model call. Streams so a stop request can cut it short. Returns (text, tool calls)."""
+    def _complete(self, kwargs: dict, quiet: bool = False) -> tuple[str, list[dict]]:
+        """One model call. Streams so a stop request can cut it short and the UI can show the text as it is
+        written ("token" events, unless quiet). Returns (text, tool calls)."""
         create = self.client.chat.completions.create
         resp = None
         if self.cfg["llm"].get("stream", True) and not self.__dict__.get("_no_stream"):
@@ -347,6 +348,8 @@ class Agent:
                 delta = chunk.choices[0].delta
                 if getattr(delta, "content", None):
                     text.append(delta.content)
+                    if not quiet:
+                        self.on_event("token", {"text": delta.content})
                 for tc in getattr(delta, "tool_calls", None) or []:
                     c = calls.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
                     if tc.id:
@@ -425,7 +428,9 @@ class Agent:
                 kwargs["reasoning_effort"] = llm["reasoning_effort"]
             self.on_event("thinking", {"step": step + 1})
             try:
-                content, calls = self._complete(kwargs)
+                # the reply to the final check is usually just "DONE": don't show it being written
+                content, calls = self._complete(kwargs, quiet=pending_answer is not None
+                                                and len(self.messages) == check_at + 1)
             except Stopped:
                 self.policy.audit("stopped")
                 return STOPPED

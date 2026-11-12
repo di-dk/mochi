@@ -153,3 +153,38 @@ def test_trusted_hotkey_guard(env):
     policy.auto_allow = {"desktop"}
     r = call(reg, policy, "hotkey", keys=["win", "r"])                   # Run box -> still needs approval
     assert r.startswith("DENIED")
+
+
+def test_disk_usage_and_duplicates(env):
+    cfg, policy, reg, _ = env
+    ws = policy.workspace
+    (ws / "a").mkdir(parents=True, exist_ok=True)
+    (ws / "b").mkdir(exist_ok=True)
+    (ws / "a" / "x.bin").write_bytes(b"1" * 300_000)
+    (ws / "b" / "copy.bin").write_bytes(b"1" * 300_000)
+    (ws / "b" / "other.bin").write_bytes(b"2" * 300_000)
+    r = call(reg, policy, "disk_usage", path=".")
+    assert "Biggest folders" in r and "x.bin" in r
+    d = call(reg, policy, "find_duplicates", path=".", min_kb=100)
+    assert "1 duplicate set" in d and "copy.bin" in d and "other.bin" not in d and "Nothing was deleted" in d
+    assert (ws / "b" / "copy.bin").exists()
+
+
+def test_weather_parses_open_meteo(env, monkeypatch):
+    cfg, policy, reg, _ = env
+    import httpx
+
+    class R:
+        def __init__(self, data): self.data = data
+        def json(self): return self.data
+
+    def fake_get(url, **kw):
+        if "geocoding" in url:
+            return R({"results": [{"name": "Kathmandu", "country": "Nepal", "latitude": 27.7, "longitude": 85.3}]})
+        return R({"current": {"temperature_2m": 21, "apparent_temperature": 20, "weather_code": 2,
+                              "wind_speed_10m": 5, "relative_humidity_2m": 60},
+                  "daily": {"time": ["d1", "d2", "d3"], "weather_code": [0, 61, 3], "temperature_2m_max": [24, 22, 20],
+                            "temperature_2m_min": [14, 13, 12], "precipitation_sum": [0, 4, 1]}})
+    monkeypatch.setattr(httpx, "get", fake_get)
+    r = call(reg, policy, "weather", city="Kathmandu")
+    assert "Kathmandu, Nepal" in r and "partly cloudy" in r and "light rain" in r

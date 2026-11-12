@@ -18,3 +18,4 @@ python-docx>=1.2
 openpyxl>=3.1
 win11toast>=0.36
 psutil>=7.0
+pywebview>=6.0
