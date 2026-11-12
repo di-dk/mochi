@@ -67,17 +67,25 @@ if (-not (Test-Path config.local.yaml)) { Copy-Item config.local.example.yaml co
 # 4. Offline self-test
 .\.venv\Scripts\python.exe -m pytest -q
 
-# 5. Desktop shortcut (opens Windows Terminal if available)
-$lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Mochi.lnk'
-if (-not (Test-Path $lnk)) {
-  $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
-  $wt = (Get-Command wt.exe -ErrorAction SilentlyContinue).Source
-  if ($wt) { $s.TargetPath = $wt; $s.Arguments = "--title Mochi -d `"$PSScriptRoot`" cmd /k `"$PSScriptRoot\mochi.cmd`"" }
-  else     { $s.TargetPath = "$env:ComSpec"; $s.Arguments = "/k `"$PSScriptRoot\mochi.cmd`"" }
+# 5. Desktop shortcuts: "Mochi" (terminal) and "Mochi Window" (her own chat window).
+# Each shortcut points straight at a launcher file with NO command-line arguments. Shortcuts that start
+# cmd.exe / wt.exe / powershell with arguments are the pattern antivirus engines call "Trojan.Loader", and an
+# older version of this script made exactly that kind, so those are replaced when you run setup again.
+$shell = New-Object -ComObject WScript.Shell
+$desktop = [Environment]::GetFolderPath('Desktop')
+foreach ($item in @(@{ Name = 'Mochi'; Target = 'mochi.cmd' }, @{ Name = 'Mochi Window'; Target = 'mochi-window.cmd' })) {
+  $lnk = Join-Path $desktop ($item.Name + '.lnk')
+  $target = Join-Path $PSScriptRoot $item.Target
+  $old = if (Test-Path $lnk) { $shell.CreateShortcut($lnk) } else { $null }
+  if ($old -and $old.TargetPath -ieq $target -and -not $old.Arguments) { continue }   # already the safe kind
+  $s = $shell.CreateShortcut($lnk)
+  $s.TargetPath = $target
+  $s.Arguments = ''
   $s.WorkingDirectory = $PSScriptRoot
   $s.IconLocation = "$PSScriptRoot\assets\mochi.ico"
+  $s.Description = 'Mochi, a local AI assistant'
   $s.Save()
-  Write-Host "Created desktop shortcut: $lnk"
+  Write-Host ("{0} desktop shortcut: {1}" -f $(if ($old) { 'Updated' } else { 'Created' }), $lnk)
 }
 
 # 6. `mochi` command on PATH (asks first)

@@ -27,6 +27,8 @@ IMAGE_EXT = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", "
              ".gif": "image/gif"}
 PATH_RE = re.compile(r"""(?:[A-Za-z]:[\\/]|\.{0,2}[\\/])?[^\s"'<>|*?:]+\.(?:png|jpe?g|webp|gif)""", re.I)
 MAX_EVENTS = 20000
+THEMES = ("auto", "mochi-dark", "mochi-light", "sakura", "lavender", "mint", "midnight", "ocean",
+          "forest", "sunset", "graphite")
 MAX_UPLOAD = 2 * 1024**3          # 2 GB per file
 
 
@@ -271,9 +273,23 @@ class GuiApp:
         """Everything a freshly opened page needs, plus where to start listening for new events."""
         with self.bus.cv:
             since = self.bus.base + len(self.bus.events)
-        return {**self.info(), "since": since, "chat_id": self.chat_id, "transcript": list(self.transcript),
+        return {**self.info(), "theme": self.theme(), "since": since, "chat_id": self.chat_id, "transcript": list(self.transcript),
                 "workspace": str(self.agent.policy.workspace) if self.agent else "",
                 "tools": len(self.agent.registry.tools) if self.agent else 0}
+
+    def theme(self) -> str:
+        t = (self.cfg.get("ui") or {}).get("theme", "auto")
+        return t if t in THEMES else "auto"
+
+    def set_theme(self, name: str) -> str:
+        if name not in THEMES:
+            return "unknown theme"
+        self.cfg.setdefault("ui", {})["theme"] = name
+        try:
+            save_local_setting("ui", "theme", name)
+        except OSError as e:
+            return f"could not save: {e}"
+        return "ok"
 
     def new_chat(self) -> str:
         if self.busy or self.agent is None:
@@ -401,7 +417,9 @@ def make_handler(app: GuiApp, host_header: str):
             if not self._ok():
                 return
             if u.path == "/":
-                html = page.replace("__TOKEN__", app.token).replace("__NAME__", app.cfg["agent"]["name"])
+                theme = app.theme()
+                html = (page.replace("__TOKEN__", app.token).replace("__NAME__", app.cfg["agent"]["name"])
+                        .replace("__THEMEATTR__", "" if theme == "auto" else f'data-theme="{theme}"'))
                 self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
             elif u.path == "/avatar.png":
                 f = ROOT / "assets" / "mochi_small.png"
@@ -462,6 +480,8 @@ def make_handler(app: GuiApp, host_header: str):
                 self._json({"status": "stopping"})
             elif path == "/approve":
                 self._json({"ok": app.answer(str(body.get("id", "")), str(body.get("answer", "")))})
+            elif path == "/theme":
+                self._json({"status": app.set_theme(str(body.get("name", "")))})
             elif path == "/chat/new":
                 self._json({"status": app.new_chat()})
             elif path == "/chat/open":

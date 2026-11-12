@@ -240,3 +240,17 @@ def test_history_is_locked_while_she_works_and_images_are_not_saved(gui):
                                          {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}}]}]
     cleaned = clean_messages(msgs)
     assert len(cleaned) == 1 and "AAAA" not in str(cleaned) and "a.png" in cleaned[0]["content"]
+
+
+def test_theme_is_validated_saved_and_applied_before_first_paint(gui, monkeypatch):
+    app, base, h = gui
+    saved = []
+    import agent.gui as gmod
+    monkeypatch.setattr(gmod, "save_local_setting", lambda sec, key, val: saved.append((sec, key, val)))
+    assert "data-theme" not in httpx.get(f"{base}/?t={app.token}").text.split("<head>")[0]      # auto by default
+    assert httpx.post(f"{base}/theme", headers=h, json={"name": "midnight"}).json()["status"] == "ok"
+    assert saved == [("ui", "theme", "midnight")]
+    assert httpx.post(f"{base}/theme", headers=h, json={"name": "<script>"}).json()["status"] == "unknown theme"
+    assert saved == [("ui", "theme", "midnight")]                                               # junk is never stored
+    assert httpx.get(f"{base}/state", headers=h).json()["theme"] == "midnight"
+    assert '<html lang="en" data-theme="midnight">' in httpx.get(f"{base}/?t={app.token}").text
