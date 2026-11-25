@@ -5,6 +5,7 @@ import json
 import os
 import platform
 import queue
+import re
 import shutil
 import subprocess
 import threading
@@ -24,7 +25,7 @@ from .tools import VIEW_MAX, build_tools
 from .tools_extra import all_skills, recent_lessons, skills_index
 
 ROOT = Path(__file__).resolve().parent.parent
-NEVER_AUTO = {"delete", "write_outside", "read_outside", "overwrite", "shell", "python"}
+NEVER_AUTO = {"delete", "write_outside", "read_outside", "overwrite", "shell", "python", "skill_import"}
 IMAGE_COST = 4000   # rough context chars charged per attached image
 KEEP_IMAGES = 2     # only the newest N images stay in the conversation
 TRIM_TO = 0.65      # when the context is full, cut down to this share of the budget in ONE go (keeps the
@@ -52,10 +53,17 @@ def image_data_url(path: str, max_side: int = VIEW_MAX) -> str:
         im.save(buf, "JPEG", quality=85)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
+# "Let me try a different search." / "I'll check that next." and then no tool call: she stopped halfway.
+ANNOUNCES = re.compile(r"\b(let me|let's|i'?ll|i will|i'm going to|i am going to|next,? i('ll| will)|now i('ll| will))\b"
+                       r"[^.?!\n]{0,80}\b(search|try|look|check|fetch|run|test|use|call|find|query|read|open|write|"
+                       r"create|make|generate|get|retry|again|different)\b", re.I)
+
 SYSTEM_PROMPT = """You are {name}, a friendly, cheerful and capable autonomous assistant running locally on the
 user's {os_name} ({host}).
 {persona}
-Today is {date}. Your workspace folder is {workspace} — relative paths resolve there and you may freely
+Today is {date}. Your portrait is {root}/assets/mochi.png and your expression pictures are in
+{root}/assets/expressions (you may read them; ask the user before changing anything outside your workspace).
+Your workspace folder is {workspace} — relative paths resolve there and you may freely
 create, edit and organize files inside it. Use tools to actually do the work; don't just describe it.
 
 How to work:
@@ -65,6 +73,8 @@ How to work:
 - VERIFY ONCE before you say "done": read files back, inspect_pdf the PDFs you made (render_page=1 if you can
   see images), view_image generated pictures, app_read results. If the check passes, move on — never redo a step
   that already succeeded. Only fix what the check shows is wrong.
+- If you don't know how to do something, don't give up and don't guess: read_skill learn-new-skill and follow it
+  (research, try safely, verify, then save_skill).
 - After finishing a new multi-step task successfully, save_skill so you can repeat it next time. When something
   failed and you found the fix, or the user corrected you, save_lesson.
 - Prefer the most direct tool: create_pdf / create_docx / create_spreadsheet for documents, comfy_* for images,
@@ -267,7 +277,8 @@ class Agent:
             return ""
         lines = [l for l in f.read_text(encoding="utf-8").splitlines()
                  if l.strip() and not l.startswith("Edit this file")]
-        return "\nYour persona:\n" + "\n".join(lines) + "\n"
+        from .identity import SHEET
+        return "\nYour persona:\n" + "\n".join(lines) + "\n\n" + SHEET + "\n"
 
     def reset(self) -> None:
         self.messages = [self.system_message()]
@@ -282,7 +293,7 @@ class Agent:
         idx = skills_index(ws)
         lessons = recent_lessons(ws)
         return {"role": "system", "content": SYSTEM_PROMPT.format(
-            name=self.cfg["agent"]["name"], persona=self._persona(), host=platform.node(), os_name=OS_NAME,
+            name=self.cfg["agent"]["name"], persona=self._persona(), host=platform.node(), os_name=OS_NAME, root=str(ROOT),
             date=time.strftime("%A %Y-%m-%d %H:%M"), workspace=ws, memory=memory,
             vision_note=VISION_ON if self.vision else VISION_OFF,
             skills=f"\nSkills you have (read_skill for the steps):\n{idx}\n" if idx else "",
@@ -418,11 +429,19 @@ class Agent:
             c["id"] = c["id"] or f"call_{len(self.messages)}_{i}"
         return "".join(text), out
 
-    def _nudge(self, content: str) -> str:
+    def _nudge(self, content: str, called: frozenset = frozenset()) -> str:
         """Small models sometimes stop early. Return a nudge message, or '' if the answer looks final."""
         if not content.strip():
             return ("(System: you stopped without an answer. Continue the task now using tools; when everything is "
                     "finished, reply with your final answer.)")
+        if re.search(r"\bI learned:", content) and "save_skill" not in called:
+            return ("(System: you said you learned a skill but did not call save_skill. Call save_skill now with "
+                    "name, description, the exact steps that worked and the sources (URLs); then give your final "
+                    "answer again, short.)")
+        if ANNOUNCES.search(content.strip()[-260:]) and not content.rstrip().endswith("?"):
+            return ("(System: you said what you would do next but did not do it. Do it now with a tool call. If it "
+                    "already failed, try a different way: other words, another tool, another source. Only give a "
+                    "final answer when the task is finished or truly cannot be done; then say what you tried.)")
         plan = getattr(self.registry, "plan", None) or []
         open_steps = [f"{i}. {s['step']}" for i, s in enumerate(plan, 1) if s["status"] in ("todo", "doing")]
         if open_steps:
@@ -441,15 +460,23 @@ class Agent:
     def _prepare(self, user_text: str) -> str:
         """Pick the tool groups and (if one clearly fits) the skill for this request. Returns the user message."""
         reg, text = self.registry, user_text
+        self._deep = False
         if self._auto_tools():
             reg.enabled_groups |= smart.groups_for_text(user_text)
         if (self.cfg.get("skills") or {}).get("auto_match", True):
-            skill = smart.match_skill(user_text, all_skills(self.policy.workspace))
+            skills = all_skills(self.policy.workspace)
+            skill = smart.match_skill(user_text, skills)
+            if not skill and smart.wants_learning(user_text):      # "learn how to ...": hand her the learning recipe
+                skill = next((s for s in skills if s["name"] == "learn-new-skill"), None)
+            self._deep = bool(skill and skill["name"] == "learn-new-skill")      # hard task: let the model think
             if skill:
                 reg.enabled_groups |= smart.groups_for_tools(skill["text"], set(reg.tools))
                 self.on_event("skill", {"name": skill["name"]})
+                recipe = skill["text"].strip()
+                if len(recipe) > 6000:
+                    recipe = recipe[:6000] + f"\n(...cut off; read_skill '{skill['name']}' for the rest)"
                 text += (f"\n\n(System: your skill '{skill['name']}' matches this request. Follow it, unless it "
-                         f"clearly does not fit:\n{skill['text'].strip()}\n)")
+                         f"clearly does not fit:\n{recipe}\n)")
         return text
 
     def _auto_tools(self) -> bool:
@@ -476,6 +503,7 @@ class Agent:
         llm, reg = self.cfg["llm"], self.registry
         agent_cfg = self.cfg.get("agent") or {}
         nudges = tool_count = 0
+        called: set[str] = set()          # tools used in this request
         seen: dict[tuple[str, str], int] = {}
         pending_answer, check_at = None, -1      # final check: the answer on hold and where the check started
         plan = getattr(reg, "plan", None)
@@ -491,6 +519,8 @@ class Agent:
                           temperature=llm.get("temperature", 0.3))
             if llm.get("reasoning_effort"):
                 kwargs["reasoning_effort"] = llm["reasoning_effort"]
+            if getattr(self, "_deep", False) and llm.get("learning_effort") and kwargs.get("reasoning_effort", "none") == "none":
+                kwargs["reasoning_effort"] = llm["learning_effort"]       # optional: more thinking for learning tasks
             self.on_event("thinking", {"step": step + 1})
             try:
                 # the reply to the final check is usually just "DONE": don't show it being written
@@ -515,7 +545,7 @@ class Agent:
                         return pending_answer
                     self.policy.audit("assistant", text=content)
                     return content                             # she wrote a corrected answer instead
-                nudge = self._nudge(content)
+                nudge = self._nudge(content, frozenset(called))
                 if nudge and nudges < 2:
                     nudges += 1
                     self.on_event("nudge", {"text": nudge})
@@ -537,6 +567,7 @@ class Agent:
             for c in calls:
                 name, args = c["name"], c["arguments"]
                 tool_count += 1
+                called.add(name)
                 self.on_event("tool_call", {"name": name, "args": args})
                 key = (name, args)
                 seen[key] = seen.get(key, 0) + 1

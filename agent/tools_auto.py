@@ -207,6 +207,47 @@ def add_auto_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
             size = f"{im.width}x{im.height}"
         return f"Saved {dst} ({size})" + reg.attach_image(dst, dst.name)
 
+    # ------------------------------------------------------------------ pictures of herself
+    @reg.add("draw_myself",
+             "Draw or edit a picture of YOURSELF (Mochi) so that it really looks like you. ALWAYS use this when asked "
+             "to draw, show, imagine or change yourself; never comfy_txt2img (it does not know your face). scene: what "
+             "should change or happen, e.g. 'wearing a cozy winter coat and scarf, standing in the snow'. "
+             "closeup=true makes a face close-up (set expression: relaxed|happy|excited|thinking|working|asking|"
+             "worried|sad|sleepy). Saves into comfy/ and shows it in the chat.",
+             {"scene": S, "closeup": B, "expression": S, "seed": I}, ["scene"])
+    def draw_myself(scene: str, closeup: bool = False, expression: str = "", seed: int = -1):
+        import random as _r
+        from PIL import Image
+        from .identity import LOCK, MOODS as _MOODS, TAGS
+        root = Path(__file__).resolve().parent.parent
+        mood = {"relaxed": "neutral"}.get(expression.lower(), expression.lower())
+        if closeup:
+            src = root / "assets" / "expressions" / f"{mood if mood in _MOODS else 'neutral'}.webp"
+        else:
+            src = root / "assets" / "mochi.png"
+        if src.suffix.lower() == ".webp":                       # ComfyUI wants a png
+            scratch = ws / ".scratch"
+            scratch.mkdir(exist_ok=True)
+            png = scratch / f"self_{src.stem}.png"
+            Image.open(src).convert("RGB").save(png)
+            src = png
+        prompt = f"{scene.strip().rstrip('.')}. {LOCK}" + (" Keep it a close-up of her face." if closeup else "")
+        seed = _r.randint(1, 2**31) if seed < 0 else seed
+        run = reg.tools["comfy_run_workflow"].fn
+        res = run(template="qwen-image-edit", images={"7.image": str(src)},
+                  set={"9.prompt": prompt, "12.seed": seed, "14.filename_prefix": "mochi-self"})
+        note = ""
+        if str(res).startswith("ERROR") or "Outputs:" not in str(res):
+            # no edit model: fall back to a normal checkpoint with her tags (looks less like her)
+            res = reg.tools["comfy_txt2img"].fn(prompt=f"{TAGS}, {scene}", width=832 if closeup else 832,
+                                                height=832 if closeup else 1216, _self=True)
+            note = "\n(This is only an approximation: the picture-editing model was not available.)"
+        files = re.findall(r"^(/\S+\.(?:png|jpe?g|webp))$", str(res), re.M)
+        if not files:
+            return str(res)[:600]
+        return (f"Drew myself: {scene[:120]} (seed {seed}).{note}\n"
+                + reg.tools["share_file"].fn(path=files[0], caption=f"Me: {scene[:100]}"))
+
     # ------------------------------------------------------------------ sharing files in the chat
     @reg.add("share_file",
              "Show or send a file to the user in the chat. Images and videos appear as a small thumbnail the user can "

@@ -2,6 +2,8 @@
 import threading
 from types import SimpleNamespace as NS
 
+from pathlib import Path
+
 import pytest
 
 from agent import smart
@@ -278,3 +280,107 @@ def test_approval_prompt_shows_every_answer_letter(capsys):
     assert kb.approve("write", "Write a file") == "y"
     out = capsys.readouterr().out
     assert "[y]es" in out and "[n]o" in out and "[a]lways" in out
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Learn how to get the ISS position yourself", True),
+    ("you have no skill for this yet, figure it out", True),
+    ("teach yourself to make QR codes", True),
+    ("what is the weather in Brussels", False),
+    ("summarize this pdf", False),
+])
+def test_learning_requests_are_recognised(text, expected):
+    assert smart.wants_learning(text) is expected
+
+
+def test_learning_request_gets_the_learning_recipe(env):
+    events = []
+    agent, seen = make_agent(env, [("ok", [])], events)
+    agent.run("You have no skill for this yet: learn how to get the ISS position and tell me")
+    user = seen[0]["messages"][-1]["content"]
+    assert "your skill 'learn-new-skill' matches" in user and "web_search" in user
+    assert ("skill", {"name": "learn-new-skill"}) in events
+
+
+@pytest.mark.parametrize("text,nudged", [
+    ("I couldn't find any results. Let me try a different search query.", True),
+    ("The first source failed. I'll check the official docs next.", True),
+    ("Here is the answer: the ISS is at 12.3, 45.6. I tested the API twice.", False),
+    ("Done! The file is saved as report.pdf. Want me to make a Word version too?", False),
+])
+def test_announce_and_stop_is_nudged(env, text, nudged):
+    agent, _ = make_agent(env, [])
+    assert bool(agent._nudge(text)) is nudged
+
+
+def test_she_continues_after_announcing_the_next_step(env):
+    agent, seen = make_agent(env, [("No results. Let me try a different search query.", []),
+                                   ("", [("wait", '{"seconds": 0}')]), ("The position is 1.0, 2.0.", [])])
+    answer = agent.run("learn how to find the ISS position")
+    assert answer == "The position is 1.0, 2.0."
+    assert any("did not do it" in str(m.get("content")) for m in seen[1]["messages"])
+
+
+def test_i_learned_must_be_backed_by_save_skill(env):
+    agent, _ = make_agent(env, [])
+    assert "save_skill" in agent._nudge("The answer is 42. I learned: ask-the-oracle")
+    assert agent._nudge("The answer is 42. I learned: ask-the-oracle", frozenset({"save_skill"})) == ""
+
+
+def test_she_knows_herself_and_can_read_her_own_pictures(env):
+    from agent.core import ROOT
+    cfg, policy, reg = env
+    agent, _ = make_agent(env, [])
+    agent.cfg["agent"]["persona_file"] = "persona.md"
+    prompt = Agent.system_message(agent)["content"]
+    assert "MOCHI'S LOOK" in prompt and "chin-length bob" in prompt and "rose-pink irises" in prompt
+    assert "strawberry shortcake" in prompt and "draw_myself" in prompt
+    assert str(ROOT) in prompt and "assets/mochi.png" in prompt and "about-mochi" in prompt
+    assert policy.check_read(ROOT / "assets" / "mochi.png") == (ROOT / "assets" / "mochi.png").resolve()   # no approval
+
+
+def test_bogus_lesson_examples_are_not_in_tool_descriptions(env):
+    for tool in env[2].tools.values():
+        assert "nova3DCGXL" not in tool.description and "anima checkpoints" not in tool.description
+
+
+def test_one_canonical_look_everywhere(env):
+    from agent.identity import LOCK, SHEET, TAGS
+    for must in ("rose pink", "raspberry", "bangs", "aqua", "apron", "bow"):
+        assert must in SHEET.lower() or must in SHEET, must
+    for text in (LOCK, TAGS):
+        assert "bangs" in text and "aqua" in text and "apron" in text
+    assert "draw_myself" in (Path(__file__).parent.parent / "skills" / "about-mochi.md").read_text()
+    assert "comfy_txt2img" in (Path(__file__).parent.parent / "skills" / "about-mochi.md").read_text()   # ...as the thing NOT to use
+
+
+def test_draw_myself_redraws_from_her_portrait(env, monkeypatch):
+    from agent.core import ROOT
+    cfg, policy, reg = env
+    calls = {}
+
+    def fake_run(**kw):
+        calls.update(kw)
+        out = policy.workspace / "comfy" / "qwen-image-edit_mochi-self_00001_.png"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x89PNG")
+        return f"Outputs:\n{out}"
+
+    monkeypatch.setattr(reg.tools["comfy_run_workflow"], "fn", fake_run)
+    out = reg.call("draw_myself", {"scene": "wearing a cozy winter coat and scarf"}, policy)
+    assert calls["template"] == "qwen-image-edit"
+    assert calls["images"]["7.image"] == str(ROOT / "assets" / "mochi.png")             # her real portrait
+    prompt = calls["set"]["9.prompt"]
+    assert prompt.startswith("wearing a cozy winter coat and scarf.") and "Keep the exact same girl" in prompt
+    assert "[[shared:comfy/qwen-image-edit_mochi-self_00001_.png|Me: wearing a cozy winter coat" in out
+    reg.call("draw_myself", {"scene": "laughing", "closeup": True, "expression": "happy"}, policy)
+    assert calls["images"]["7.image"].endswith("self_happy.png") and "close-up of her face" in calls["set"]["9.prompt"]
+    reg.call("draw_myself", {"scene": "x", "closeup": True, "expression": "../../etc/passwd"}, policy)
+    assert calls["images"]["7.image"].endswith("self_neutral.png")                       # unknown mood -> neutral, no path tricks
+
+
+def test_text_to_image_refuses_self_portraits(env):
+    cfg, policy, reg = env
+    for prompt in ("3D portrait of Mochi", "a self-portrait", "draw yourself in the snow", "Mochi the maid girl"):
+        r = reg.call("comfy_txt2img", {"prompt": prompt}, policy)
+        assert r.startswith("ERROR") and "draw_myself" in r, prompt

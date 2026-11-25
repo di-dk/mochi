@@ -141,8 +141,36 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
              {"query": S, "max_results": I}, ["query"])
     def web_search(query: str, max_results: int = 6):
         from ddgs import DDGS
-        res = DDGS().text(query, max_results=max_results)
-        return "\n\n".join(f"[{i+1}] {r.get('title')}\n{r.get('href')}\n{r.get('body')}" for i, r in enumerate(res)) or "No results."
+        errors: list[str] = []
+        for backend in ("auto", "bing", "brave", "duckduckgo"):      # one flaky engine must not end the search
+            try:
+                res = DDGS().text(query, max_results=max_results, backend=backend)
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{backend}: {type(e).__name__}")
+                time.sleep(1)
+                continue
+            if res:
+                return "\n\n".join(f"[{i+1}] {r.get('title')}\n{r.get('href')}\n{r.get('body')}"
+                                    for i, r in enumerate(res))
+        extra: list[str] = []
+        try:                                            # Wikipedia and GitHub answer even when the engines are blocked
+            w = httpx.get("https://en.wikipedia.org/w/api.php", timeout=15, headers={"User-Agent": "mochi"},
+                          params={"action": "opensearch", "search": query, "limit": 3, "format": "json"}).json()
+            extra += [f"[Wikipedia] {t}\n{u}\n{d}" for t, d, u in zip(w[1], w[2], w[3])]
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            g = httpx.get("https://api.github.com/search/repositories", timeout=15, headers={"User-Agent": "mochi"},
+                          params={"q": query, "per_page": 4, "sort": "stars"}).json()
+            extra += [f"[GitHub repo] {i['full_name']} ({i['stargazers_count']} stars)\n{i['html_url']}\n"
+                      f"{i.get('description') or ''}" for i in g.get("items", [])]
+        except Exception:  # noqa: BLE001
+            pass
+        if extra:
+            return ("(The search engines failed (" + ", ".join(errors) + "); these come from Wikipedia and GitHub "
+                    "instead. fetch_url the best one, or retry with other words.)\n\n" + "\n\n".join(extra))
+        return ("ERROR: web search failed on every engine (" + ", ".join(errors or ["no results"]) + "). Try different "
+                "words, or fetch_url a site you already know holds the answer (official docs, Wikipedia).")
 
     @reg.add("fetch_url", "Fetch a web page and return its main readable text.",
              {"url": S, "max_chars": I}, ["url"])
@@ -404,16 +432,27 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
                 f"VRAM free {dev.get('vram_free', 0) / 2**30:.1f} GB. Queue running={len(q['queue_running'])} "
                 f"pending={len(q['queue_pending'])}")
 
-    @reg.add("comfy_list_models", "List ComfyUI checkpoints (or another loader's options).", {"kind": S})
-    def comfy_list_models(kind: str = "checkpoints"):
-        node, field = {"checkpoints": ("CheckpointLoaderSimple", "ckpt_name"),
-                       "loras": ("LoraLoader", "lora_name"),
-                       "unets": ("UNETLoader", "unet_name")}.get(kind, ("CheckpointLoaderSimple", "ckpt_name"))
+    NOT_IMAGE_MODEL = re.compile(r"audio|sfx|music|tts|voice|vae|clip|t5|encoder", re.I)
+    LOADERS = {"checkpoints": ("CheckpointLoaderSimple", "ckpt_name"), "loras": ("LoraLoader", "lora_name"),
+               "unets": ("UNETLoader", "unet_name")}
+
+    def comfy_models(kind: str) -> list[str]:
+        node, field = LOADERS.get(kind, LOADERS["checkpoints"])
         try:
             info = httpx.get(f"{curl}/object_info/{node}", timeout=15).json()
         except httpx.ConnectError:
             raise RuntimeError(COMFY_DOWN) from None
-        return "\n".join(info[node]["input"]["required"][field][0])
+        return list(info[node]["input"]["required"][field][0])
+
+    @reg.add("comfy_list_models",
+             "List what ComfyUI has. kind: checkpoints (SD/SDXL image models for comfy_txt2img; audio models are "
+             "marked), unets (diffusion models such as Qwen-Image-Edit and Wan video: used through workflow "
+             "templates), loras, or all.", {"kind": S})
+    def comfy_list_models(kind: str = "checkpoints"):
+        if kind == "all":
+            return "\n\n".join(f"{k}:\n" + ("\n".join(comfy_models(k)) or "(none)") for k in LOADERS)
+        return "\n".join(m + ("   (audio/other, not for images)" if kind == "checkpoints" and NOT_IMAGE_MODEL.search(m)
+                               else "") for m in comfy_models(kind))
 
     def queue_and_wait(workflow: dict, out_prefix: str, timeout_s: int = 900) -> list[str]:
         try:
@@ -448,12 +487,19 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
             time.sleep(2)
         raise TimeoutError(f"ComfyUI job {pid} not finished after {timeout_s}s")
 
+    SELF_PROMPT = re.compile(r"self[- ]?portrait|yourself|\bportrait of mochi\b|\bmochi\b[^,.]{0,25}\b(girl|maid|character|"
+                             r"avatar|herself|portrait)\b", re.I)
+
     @reg.add("comfy_txt2img",
              "Generate an image with ComfyUI using a standard SD/SDXL checkpoint. Output is saved into workspace/comfy.",
              {"prompt": S, "negative": S, "checkpoint": S, "width": I, "height": I, "steps": I,
               "guidance": {"type": "number"}, "seed": I}, ["prompt"])
     def comfy_txt2img(prompt: str, negative: str = "lowres, blurry, watermark, text", checkpoint: str = "",
-                      width: int = 1024, height: int = 1024, steps: int = 25, guidance: float = 6.0, seed: int = -1):
+                      width: int = 1024, height: int = 1024, steps: int = 25, guidance: float = 6.0, seed: int = -1,
+                      _self: bool = False):
+        if SELF_PROMPT.search(prompt) and not _self:
+            return ("ERROR: this is a picture of YOU. comfy_txt2img does not know your face and will not look like "
+                    "you. Use draw_myself(scene=...) instead; it redraws you from your own portrait.")
         ckpt = checkpoint or cfg_default_ckpt()
         seed = random.randint(0, 2**31) if seed < 0 else seed
         wf = {
@@ -472,20 +518,95 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         return f"Generated with {ckpt} seed={seed}:\n" + "\n".join(files)
 
     def cfg_default_ckpt() -> str:
-        return cfg["comfyui"].get("default_checkpoint") or comfy_list_models().splitlines()[0]
+        if cfg["comfyui"].get("default_checkpoint"):
+            return cfg["comfyui"]["default_checkpoint"]
+        usable = [m for m in comfy_models("checkpoints") if not NOT_IMAGE_MODEL.search(m)]
+        if not usable:
+            raise RuntimeError("ComfyUI has no image checkpoint (only audio or other models). Do not retry "
+                               "comfy_txt2img. Tell the user to add an SD/SDXL checkpoint, or use "
+                               "comfy_run_workflow with a template (see comfy_list_models kind=all).")
+        return usable[0]
+
+    WORKFLOWS = ROOT / "workflows"
+
+    @reg.add("comfy_node_info",
+             "Learn what ComfyUI can do so you can build workflows yourself. search='qwen' lists node names that "
+             "contain the word; node='KSampler' shows that node's exact inputs (required ones marked *, with the "
+             "allowed values) and outputs; template='qwen-image-edit' shows a ready workflow as JSON to copy from.",
+             {"search": S, "node": S, "template": S})
+    def comfy_node_info(search: str = "", node: str = "", template: str = ""):
+        if template:
+            f = WORKFLOWS / f"{re.sub(r'[^A-Za-z0-9_-]', '', template)}.json"
+            if not f.is_file():
+                return "No such template. Available: " + ", ".join(sorted(x.stem for x in WORKFLOWS.glob("*.json")))
+            return f.read_text(encoding="utf-8")
+        if not (search or node):
+            return "ERROR: give search= (a word), node= (a node name) or template=."
+        try:
+            info = httpx.get(f"{curl}/object_info" + (f"/{node}" if node else ""), timeout=60).json()
+        except httpx.ConnectError:
+            raise RuntimeError(COMFY_DOWN) from None
+        if node:
+            d = info.get(node)
+            if not d:
+                return f"No node named {node!r}. Use search= to find the exact name."
+            lines = [f"{node}: {(d.get('description') or d.get('display_name') or '')[:200]}"]
+            for sect in ("required", "optional"):
+                for k, v in (d.get("input", {}).get(sect) or {}).items():
+                    t = v[0]
+                    kind = (f"one of {t[:12]}" + ("…" if len(t) > 12 else "")) if isinstance(t, list) else str(t)
+                    opt = v[1] if len(v) > 1 and isinstance(v[1], dict) else {}
+                    lines.append(f"  {'*' if sect == 'required' else ' '} {k}: {kind}"
+                                 + (f" (default {opt['default']})" if "default" in opt else ""))
+            lines.append("outputs: " + ", ".join(d.get("output", [])))
+            return "\n".join(lines)
+        q = search.lower()
+        names = sorted(n for n, d in info.items() if q in n.lower() or q in (d.get("display_name") or "").lower())
+        return "\n".join(names[:80]) + (f"\n... {len(names) - 80} more; narrow the search" if len(names) > 80 else "") \
+            if names else "No matching nodes."
 
     @reg.add("comfy_run_workflow",
-             "Run a ComfyUI workflow saved in API format (JSON file). 'set' overrides inputs, e.g. "
-             "{\"6.text\": \"a cat\", \"3.seed\": 42}. Outputs are copied into workspace/comfy.",
-             {"path": S, "set": {"type": "object"}}, ["path"])
-    def comfy_run_workflow(path: str, set: dict | None = None):  # noqa: A002
-        wf = json.loads(policy.check_read(path).read_text(encoding="utf-8"))
+             "Run a ComfyUI workflow. Use template='qwen-image-edit' (edit an image with an instruction) or "
+             "template='wan-image-to-video' (animate an image), or path= a workflow saved in API format. "
+             "'set' overrides inputs, e.g. {\"9.prompt\": \"...\", \"12.seed\": 42}. 'images' uploads workspace images "
+             "into ComfyUI and sets the field, e.g. {\"7.image\": \"comfy/cat.png\"}. Outputs are copied into "
+             "workspace/comfy. Read the skill comfy-edit-image or comfy-animate-image first.",
+             {"template": S, "path": S, "set": {"type": "object"}, "images": {"type": "object"}})
+    def comfy_run_workflow(template: str = "", path: str = "", set: dict | None = None,  # noqa: A002
+                           images: dict | None = None):
+        if template:
+            f = WORKFLOWS / f"{re.sub(r'[^A-Za-z0-9_-]', '', template)}.json"
+            if not f.is_file():
+                have = ", ".join(sorted(x.stem for x in WORKFLOWS.glob("*.json")))
+                return f"ERROR: no template {template!r}. Available: {have}"
+            name = f.stem
+        elif path:
+            f, name = policy.check_read(path), Path(path).stem
+        else:
+            return "ERROR: give template= or path=."
+        wf = json.loads(f.read_text(encoding="utf-8"))
         if "nodes" in wf and "links" in wf:
             return "ERROR: that is a UI-format workflow. Export it with 'Export (API)' in ComfyUI."
-        for key, val in (set or {}).items():
-            node, field = key.split(".", 1)
+        wf.pop("_mochi", None)
+        overrides = dict(set or {})
+        for key, rel in (images or {}).items():
+            src = policy.check_read(rel)
+            try:
+                up = httpx.post(f"{curl}/upload/image", files={"image": (src.name, src.read_bytes(), "image/png")},
+                                data={"overwrite": "true"}, timeout=120)
+            except httpx.ConnectError:
+                raise RuntimeError(COMFY_DOWN) from None
+            if up.status_code != 200:
+                return f"ERROR: ComfyUI would not take {src.name}: {up.text[:300]}"
+            overrides[key] = up.json()["name"]
+        for key, val in overrides.items():
+            node, _, field = key.partition(".")
+            if node not in wf or not field or field not in wf[node].get("inputs", {}):
+                return (f"ERROR: this workflow has no input {key!r}. Inputs you can set: "
+                        + ", ".join(f"{n}.{k}" for n, d in wf.items() for k, v in d.get("inputs", {}).items()
+                                    if not isinstance(v, list))[:900])
             wf[node]["inputs"][field] = val
-        files = queue_and_wait(wf, Path(path).stem)
+        files = queue_and_wait(wf, name)
         return "Outputs:\n" + "\n".join(files)
 
     # ------------------------------------------------------------------ scheduling

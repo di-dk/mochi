@@ -10,6 +10,7 @@ llm:
   context_length: 32768                   # used when the launcher loads the model
   reasoning_effort: none                  # none | low | medium | high  (none = fastest)
   temperature: 0.3
+  learning_effort: ""                    # optional: reasoning effort (low|medium|high) used only when she is asked to learn something; slower
   max_steps: 40                           # tool-call iterations per user turn
   stream: true                            # stream replies so /stop can cut one short
   fast_model: ""                          # optional SMALL second local model for helper jobs (condensing long
@@ -36,7 +37,8 @@ context:
 sandbox:
   workspace: workspace                   # relative to this folder; Mochi reads/writes freely here
   # Extra folders Mochi may READ without asking (writes still need approval)
-  read_allow: []
+  read_allow:
+    - assets                 # her own portrait and expression pictures
   # Never readable or writable, even with approval (credentials etc.)
   deny_globs:
     - "**/.env"

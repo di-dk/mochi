@@ -95,6 +95,41 @@ and `share_file` puts the result in the chat. A file outside her workspace is co
 saturation, sharpness, blur, grayscale, sepia, invert and auto-contrast, saved as png/jpg/webp/gif/bmp/ico. The result
 appears in the chat.
 
+## How she looks, and drawing herself
+
+Her exact look (rose-pink bob with raspberry tips and straight bangs, big rose-pink sparkly eyes, pink maid dress with a
+white collar and aqua trim, white frilly apron with two pink-bow pockets, bold-outline pastel anime style) is written
+once in `agent/identity.py` and is part of her instructions in every chat. She describes herself only with it. When she is
+asked to draw, show or change herself she uses `draw_myself`: it redraws her from her own portrait
+(`assets/mochi.png`, or the close-up for a mood) with Qwen-Image-Edit in ComfyUI and an identity lock, so her face, hair and
+outfit stay the same while only the scene changes ("in a winter coat in the snow", "as a little witch", "laughing").
+A plain text-to-image model has never seen her, so `comfy_txt2img` refuses self-portraits and points her to `draw_myself`.
+Change her look by replacing the pictures in `assets/` and editing `agent/identity.py`.
+
+## Teaching herself new things
+
+When she does not know how to do something she does not give up: she follows the built-in `learn-new-skill` recipe.
+She looks for a saved skill, researches on the web (retrying other search engines if one fails), tries the smallest
+safe test in her workspace, verifies the result, and then saves what worked with `save_skill` (steps, settings and the
+URLs she learned it from). If she says "I learned: ...", she has to have saved it; she is nudged if she did not. Ask for
+it directly: "you have no skill for this, learn how to get the ISS position yourself". Anything risky still asks you first.
+
+**Skills from git.** She can also learn skills other people have written, in the same `SKILL.md` format Claude uses:
+`list_git_skills` browses a public GitHub repository (default: Anthropic's `anthropics/skills`, or any
+`owner/repo` or github.com URL) and `import_skill` copies one into her skills. Because a skill from a repository is
+someone else's text that will steer her:
+
+- **you approve every import**: it cannot be auto-allowed, set to "always", or done in an unattended run, and the
+  approval shows the source, the size and warnings for risky content (piping downloads into a shell, `sudo`,
+  credential files, "ignore previous instructions", skipping approvals);
+- only text is copied (no binaries, nothing large, nothing outside the skill's own folder), and scripts are stored as
+  plain files: running one still goes through the normal shell / Python approval;
+- the skill is marked as imported, with its source link, and never overrides her safety rules.
+
+For ComfyUI she can discover what is installed (`comfy_list_models kind=all`) and look up nodes (`comfy_node_info`),
+edit images and animate them from ready templates in `workflows/`, or build and save new workflows herself (skills
+`comfy-image`, `comfy-edit-image`, `comfy-animate-image`, `comfy-new-workflow`).
+
 ## Her moods
 
 Her profile picture is a close-up that changes with how she feels: relaxed, happy, excited (a long task, or you

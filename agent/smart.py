@@ -7,7 +7,7 @@ import re
 CORE = {  # documentation of the always-on set; anything without a group is always sent
     "list_dir", "read_file", "write_file", "edit_file", "copy_path", "delete_path", "find_files", "search_files",
     "web_search", "fetch_url", "download_file", "set_plan", "update_plan", "find_skills", "read_skill",
-    "save_skill", "save_lesson", "remember", "recall", "wait", "use_tools",
+    "save_skill", "save_lesson", "remember", "recall", "wait", "use_tools", "list_git_skills", "import_skill",
 }
 GROUPS: dict[str, set[str]] = {
     "code": {"run_powershell", "run_shell", "run_python"},
@@ -18,7 +18,7 @@ GROUPS: dict[str, set[str]] = {
                 "app_keys", "app_close", "clipboard_get", "clipboard_set"},
     "docs": {"create_pdf", "inspect_pdf", "create_docx", "read_document", "read_spreadsheet", "create_spreadsheet"},
     "media": {"comfy_status", "comfy_list_models", "comfy_txt2img", "comfy_run_workflow", "image_edit",
-              "view_image", "media_convert", "media_info", "make_video", "list_my_videos", "share_file", "find_my_files"},
+              "view_image", "media_convert", "media_info", "make_video", "list_my_videos", "share_file", "find_my_files", "comfy_node_info", "draw_myself"},
     "system": {"schedule_task", "list_scheduled_tasks", "delete_scheduled_task", "system_info", "list_processes",
                "kill_process", "notify", "zip_files", "unzip", "speak", "weather", "disk_usage",
                "find_duplicates"},
@@ -44,7 +44,7 @@ KEYWORDS: dict[str, set[str]] = {
              "sheet", "table", "invoice", "minutes"},
     "media": {"image", "images", "picture", "pictures", "photo", "draw", "drawing", "art", "banner", "logo",
               "video", "videos", "audio", "gif", "mp3", "mp4", "comfy", "comfyui", "meme", "convert", "resize",
-              "crop", "thumbnail", "wallpaper", "quiz", "short", "shorts", "share", "find", "recent", "latest", "generated", "brighten",
+              "crop", "thumbnail", "wallpaper", "quiz", "short", "shorts", "share", "find", "recent", "latest", "generated", "yourself", "selfie", "brighten",
               "sepia", "blur", "flip", "rotate"},
     "system": {"schedule", "scheduled", "every", "daily", "weekly", "hourly", "remind", "reminder", "monitor",
                "watch", "alert", "notify", "process", "processes", "cpu", "ram", "disk", "gpu", "zip", "unzip",
@@ -88,6 +88,15 @@ def groups_for_tools(text: str, known: set[str]) -> set[str]:
     """Groups of every known tool name mentioned in a piece of text (e.g. a skill recipe)."""
     mentioned = set(re.findall(r"[a-z_]+", text)) & known
     return {g for g in (group_of(t) for t in mentioned) if g}
+
+
+LEARN = re.compile(r"\b(learn (how|to)|teach yourself|figure (it |this |that )?out|find out how|work out how|"
+                   r"you (don'?t|do not) (know|have a skill)|no skill (for|yet)|new skill)\b", re.I)
+
+
+def wants_learning(text: str) -> bool:
+    """The user is asking her to work something out for herself."""
+    return bool(LEARN.search(text))
 
 
 def match_skill(text: str, skills: list[dict]) -> dict | None:

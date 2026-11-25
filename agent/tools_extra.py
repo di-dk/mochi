@@ -197,21 +197,24 @@ def add_extra_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
 
     @reg.add("save_skill",
              "After you SUCCESSFULLY finish a multi-step task that could come up again, save how you did it as a "
-             "reusable skill: concrete steps, which tools and settings worked, pitfalls. Same name = update.",
-             {"name": S, "description": S, "steps": S}, ["name", "description", "steps"])
-    def save_skill(name: str, description: str, steps: str):
+             "reusable skill: concrete steps, which tools and settings worked, pitfalls, and sources (URLs you learned it "
+             "from). Only save what you actually verified. Same name = update.",
+             {"name": S, "description": S, "steps": S, "sources": S}, ["name", "description", "steps"])
+    def save_skill(name: str, description: str, steps: str, sources: str = ""):
         d = ws / "skills"
         d.mkdir(exist_ok=True)
         f = d / f"{slug(name)}.md"
         body = (f"name: {name.strip()}\ndescription: {description.strip()[:200]}\nupdated: {time.strftime('%Y-%m-%d')}\n\n"
-                f"{steps.strip()[:6000]}\n")
+                f"{steps.strip()[:6000]}\n"
+                + (f"\nSources (where I learned this): {sources.strip()[:500]}\n" if sources.strip() else ""))
         existed = f.exists()
         f.write_text(body, encoding="utf-8")
         return f"{'Updated' if existed else 'Saved'} skill '{name}' at {f}"
 
     @reg.add("save_lesson",
              "When something failed and you found the fix (or the user corrected you), save a one-line lesson so "
-             "you don't repeat the mistake. Example: 'anima checkpoints fail in comfy_txt2img; use nova3DCGXL'.",
+             "you don't repeat the mistake. Write it as '<what went wrong> -> <what works>' from what REALLY just "
+             "happened in this task; never invent one.",
              {"lesson": S}, ["lesson"])
     def save_lesson(lesson: str):
         f = ws / "lessons.md"
@@ -374,3 +377,5 @@ def add_extra_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
     add_video_tools(reg, policy, cfg)
     from .tools_more import add_more_tools
     add_more_tools(reg, policy, cfg)
+    from .tools_gitskills import add_git_skill_tools
+    add_git_skill_tools(reg, policy, cfg)
