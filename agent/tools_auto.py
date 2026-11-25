@@ -12,6 +12,7 @@ from pathlib import Path
 
 import httpx
 
+from . import platform_compat as pc
 from .policy import Denied, Policy
 from .registry import Registry
 
@@ -300,21 +301,17 @@ def add_auto_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
     @reg.add("clipboard_get", "Read the text on the clipboard. Asks the user first (it may hold private data).", {})
     def clipboard_get():
         policy.require("clipboard", "Read the clipboard")
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"], capture_output=True,
-                           text=True, encoding="utf-8", errors="replace")
-        return r.stdout[:8000] or "(clipboard is empty or not text)"
+        return pc.clipboard_read()[:8000] or "(clipboard is empty or not text)"
 
     @reg.add("clipboard_set", "Put text on the clipboard so the user can paste it.", {"text": S}, ["text"])
     def clipboard_set(text: str):
-        subprocess.run(["powershell", "-NoProfile", "-Command", "$input | Set-Clipboard"], input=text,
-                       text=True, encoding="utf-8")
+        pc.clipboard_write(text)
         return f"Copied {len(text)} characters to the clipboard."
 
-    @reg.add("notify", "Show a Windows notification (useful when a long or scheduled task finishes).",
+    @reg.add("notify", "Show a desktop notification (useful when a long or scheduled task finishes).",
              {"title": S, "message": S}, ["title", "message"])
     def notify(title: str, message: str):
-        from win11toast import notify as toast
-        toast(title[:80], message[:300], app_id="Mochi")
+        pc.notify(title, message)
         return "Notification shown."
 
     @reg.add("wait", "Pause for a number of seconds (max 120), e.g. while an app or page loads.", {"seconds": N},

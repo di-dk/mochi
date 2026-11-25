@@ -26,7 +26,10 @@ SENSITIVE_WINDOW = _re.compile(
 SENSITIVE_PROGRAMS = {"powershell", "pwsh", "cmd", "wt", "bash", "wsl", "python", "pythonw", "py", "node", "reg",
                       "regedit", "msiexec", "schtasks", "rundll32", "mshta", "wscript", "cscript", "certutil",
                       "bitsadmin", "diskpart", "bcdedit", "netsh", "sc", "taskkill", "format", "msconfig",
-                      "gpedit", "secpol", "mmc", "control", "ms-settings"}
+                      "gpedit", "secpol", "mmc", "control", "ms-settings",
+                      "sh", "zsh", "fish", "dash", "sudo", "su", "doas", "pkexec", "ssh", "systemctl", "dd", "mkfs",
+                      "chmod", "chown", "rm", "kill", "pkill", "crontab", "apt", "dpkg", "dnf", "pacman", "snap",
+                      "flatpak", "xdg-open", "gio", "perl", "ruby"}
 
 
 def is_sensitive_window(title: str) -> bool:
@@ -39,6 +42,9 @@ def is_sensitive_program(program: str) -> bool:
     return stem in SENSITIVE_PROGRAMS or program.lower().startswith(("ms-settings", "shell:"))
 
 
+# Linux: stdin-only filters, allowed after the first command in a pipeline and only with flag/number arguments
+# (never a file path, so they cannot be used to read a file the sandbox would refuse).
+POSIX_PIPE_FILTERS = {"head", "tail", "wc", "sort", "uniq", "cut"}
 PIPE_FILTERS = {"select-object", "where-object", "sort-object", "format-table", "format-list",
                 "measure-object", "select-string", "group-object", "out-string"}
 SECRET_MARKERS = (".env", "id_rsa", "id_ed25519", ".ssh", ".pem", ".pfx", ".git-credentials",
@@ -158,6 +164,15 @@ class Policy:
         if command.strip() and not any(t in command for t in (";", "&", ">", "<", "`", "$(", "{", "\n")):
             allowed = {a.lower() for a in self.shell_auto_allow} | PIPE_FILTERS
             segs = [s.strip() for s in command.split("|")]
-            if all(s and s.split()[0].lower() in allowed for s in segs):
+
+            def ok(i: int, s: str) -> bool:
+                parts = s.split()
+                if not parts:
+                    return False
+                if parts[0].lower() in allowed:
+                    return True
+                return i > 0 and parts[0] in POSIX_PIPE_FILTERS and all(
+                    a.startswith("-") or a.isdigit() for a in parts[1:])
+            if all(ok(i, s) for i, s in enumerate(segs)):
                 return
-        self.require("shell", f"Run PowerShell: {command}")
+        self.require("shell", f"Run shell command: {command}")

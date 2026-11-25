@@ -15,6 +15,12 @@ llm:
   fast_model: ""                          # optional SMALL second local model for helper jobs (condensing long
                                           # pages). Needs spare VRAM next to the main model; empty = not used.
   lms_path: ""                            # empty = auto-detect (PATH or %USERPROFILE%\.lmstudio\bin\lms.exe)
+  backend: auto                           # auto | lmstudio | openai. auto = use LM Studio's `lms` CLI if installed,
+                                          # else just talk to the OpenAI-compatible server at base_url (Ollama,
+                                          # llama.cpp, vLLM, hosted APIs). Linux has no `lms` by default.
+  api_key_env: ""                         # name of an environment variable holding an API key for a hosted server
+                                          # (e.g. MOCHI_API_KEY). Empty = no key (LM Studio / Ollama). Never put
+                                          # the key itself in a config file.
 
 tools:
   groups: auto                            # auto = send the model only core tools + the groups a task needs
@@ -72,6 +78,18 @@ shell:
     - echo
     - whoami
     - hostname
+  # Linux only (added to auto_allow / hard_deny when Mochi runs on Linux). Read-only commands; file readers such
+  # as cat/grep are left out on purpose, use read_file / search_files instead.
+  auto_allow_posix: [ls, pwd, date, whoami, hostname, uname, echo, df, free, uptime, id, which, ps, lscpu]
+  hard_deny_posix:
+    - "rm -rf /*"
+    - "rm -rf / "
+    - "rm -rf ~"
+    - "--no-preserve-root"
+    - "mkfs"
+    - "dd if="
+    - ":(){"
+    - "chmod -R 777 /"
   # Substrings that are always refused
   hard_deny:
     - "format-volume"
@@ -99,4 +117,4 @@ video:
   timeout_s: 1800
 
 scheduler:
-  task_folder: Mochi                      # Windows Task Scheduler folder
+  task_folder: Mochi                      # Windows Task Scheduler folder (scheduling is Windows-only)

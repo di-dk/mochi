@@ -4,18 +4,18 @@ PyYAML>=6.0
 rich>=15.0
 ddgs>=9.16
 trafilatura>=2.3
-PyAutoGUI>=0.9.54
-PyGetWindow>=0.0.9
+PyAutoGUI>=0.9.54; sys_platform == "win32"
+PyGetWindow>=0.0.9; sys_platform == "win32"
 pillow>=13.0
 playwright>=1.64
 reportlab>=5.1
 Markdown>=3.11
 pytest>=9.2
-pywinauto>=0.6.9
+pywinauto>=0.6.9; sys_platform == "win32"
 pypdf>=6.0
 pypdfium2>=5.0
 python-docx>=1.2
 openpyxl>=3.1
-win11toast>=0.36
+win11toast>=0.36; sys_platform == "win32"
 psutil>=7.0
-pywebview>=6.0
+pywebview>=6.0; sys_platform == "win32"

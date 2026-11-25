@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Mochi's own chat window on Linux (opens in your browser unless pywebview is installed).
+exec "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/mochi" --gui "$@"

@@ -1,5 +1,6 @@
 """Offline tests for vision plumbing, self-check, search, planning, skills/lessons and automation tools."""
 import copy
+import sys
 import zipfile
 
 import pytest
@@ -148,6 +149,7 @@ def test_trusted_mode_guards(tmp_path):
     assert not is_sensitive_program("notepad") and not is_sensitive_program("calc.exe")
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="hotkey tool is Windows-only")
 def test_trusted_hotkey_guard(env):
     cfg, policy, reg, _ = env
     policy.auto_allow = {"desktop"}

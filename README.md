@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/mochi_small.png" width="240" alt="Mochi, an anime girl with a pink bob in a pink dress and frilly apron, holding cake and tea"></p>
 
-# 🍡 Mochi — a cute, careful local AI agent for Windows
+# 🍡 Mochi — a cute, careful local AI agent for Windows and Linux
 
 Mochi is an autonomous assistant that runs **entirely on your PC**: a local LLM in
 [LM Studio](https://lmstudio.ai) plus ~70 sandboxed tools: files, shell, web research, a headless browser,
@@ -36,6 +36,42 @@ Already installed? Add or remove just the command:
 powershell -ExecutionPolicy Bypass -File .\setup.ps1 -PathOnly     # add `mochi` to PATH
 powershell -ExecutionPolicy Bypass -File .\setup.ps1 -RemovePath   # undo (old PATH is backed up)
 ```
+
+## Linux
+
+Mochi also runs on Linux (tested on Pop!_OS / COSMIC with Python 3.12). It does not need LM Studio there: it talks to
+any OpenAI-compatible server, such as [Ollama](https://ollama.com).
+
+```bash
+git clone https://github.com/di-dk/mochi
+cd mochi
+./setup.sh                 # venv, packages, Chromium, offline tests, `mochi` command + app-menu entry
+```
+
+Then point her at a model server (Ollama example):
+
+```bash
+ollama pull qwen3:14b                                   # any model that supports tool calls
+cp config.linux-ollama.example.yaml config.local.yaml   # edit llm.model to match `ollama list`
+OLLAMA_CONTEXT_LENGTH=32768 ollama serve                # Ollama's default context is too small for her tool prompts
+mochi                                                   # chat, or: mochi "task", mochi --gui
+```
+
+**Settings.** `llm.backend` is `auto` by default: if LM Studio's `lms` is installed she uses it as on Windows, otherwise
+she only talks to `llm.base_url`. Set `backend: openai` to force that. For a hosted API, put the key in an environment
+variable and name it in `llm.api_key_env` (the key is never stored in a file).
+
+**What works.** Files, web search and fetch, the headless browser, documents (PDF/Word/Excel), image tools, ffmpeg media,
+ComfyUI, skills and lessons, memory, clipboard (`wl-clipboard`, `xclip` or `xsel`), notifications (`notify-send`),
+speech (`spd-say` or `espeak-ng`), and the safety rules. The shell tool is `run_shell` (bash) instead of
+`run_powershell`; read-only commands such as `ls`, `pwd`, `date` run directly, everything else asks first.
+
+**What is Windows-only** (not offered to the model on Linux): Windows app control (`list_apps`, `launch_app`, `app_*`),
+mouse and keyboard control (`list_windows`, `focus_window`, `mouse_click`, `type_text`, `hotkey`, `screenshot`) and Task
+Scheduler (`schedule_task` and friends). Use `browser_screenshot` for vision on web pages.
+
+Her own window (`mochi --gui` / `mochi-window`) opens in your browser; install `pywebview` for a native window.
+`./setup.sh --uninstall` removes the command and menu entry.
 
 ## Use
 

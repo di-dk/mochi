@@ -199,6 +199,7 @@ def prepare(paths: list[str | Path], workspace: Path, denied=lambda p: False) ->
 _AT_QUOTED = re.compile(r'@"([^"]+)"')
 _AT_PLAIN = re.compile(r"@(\S+)")
 _QUOTED_WIN = re.compile(r'"([A-Za-z]:[\\/][^"]+)"')
+_QUOTED_POSIX = re.compile(r"""["']((?:/|~/)[^"']+)["']""")   # Linux terminals quote dragged paths
 
 
 def extract_paths(text: str) -> tuple[str, list[str]]:
@@ -215,5 +216,6 @@ def extract_paths(text: str) -> tuple[str, list[str]]:
 
     text = _AT_QUOTED.sub(take, text)
     text = _QUOTED_WIN.sub(take, text)
+    text = _QUOTED_POSIX.sub(take, text)
     text = _AT_PLAIN.sub(take, text)
     return re.sub(r"\s{2,}", " ", text).strip(), found

@@ -1,2 +1,6 @@
 * text=auto eol=crlf
 *.png binary
+# Linux launchers must keep LF line endings
+*.sh text eol=lf
+/mochi text eol=lf
+/mochi-window text eol=lf

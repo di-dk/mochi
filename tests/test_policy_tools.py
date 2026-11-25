@@ -1,5 +1,6 @@
 """Offline tests: sandbox, approvals, shell policy, file tools, PDF, memory, registry errors."""
 import copy
+import sys
 from pathlib import Path
 
 import pytest
@@ -68,6 +69,47 @@ def test_delete_requires_approval_and_protects_root(env):
     assert call(reg, policy, "delete_path", path=".").startswith("DENIED")
 
 
+WIN_ONLY = pytest.mark.skipif(sys.platform != "win32", reason="PowerShell policy test")
+POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="bash policy test")
+
+
+@POSIX_ONLY
+def test_shell_policy_posix(env):
+    cfg, policy, reg, answers, tmp = env
+    assert "exit=0" in call(reg, policy, "run_shell", command="uname | head -n 1")     # read-only pipeline runs
+    assert call(reg, policy, "run_shell", command="touch x.txt").startswith("DENIED")     # mutation needs approval
+    assert call(reg, policy, "run_shell", command="ls | head /etc/passwd").startswith("DENIED")  # filter + path
+    assert call(reg, policy, "run_shell", command="ls; touch y").startswith("DENIED")      # chaining needs approval
+    answers.append("y")
+    assert "hard-deny" in call(reg, policy, "run_shell", command="rm -rf /*")
+    answers.append("y")
+    assert "secret" in call(reg, policy, "run_shell", command="cat ~/.ssh/id_rsa")
+
+
+@POSIX_ONLY
+def test_session_always_allow_posix(env):
+    cfg, policy, reg, answers, tmp = env
+    answers.append("a")
+    assert "exit=0" in call(reg, policy, "run_shell", command="echo hi > out.txt")
+    assert "exit=0" in call(reg, policy, "run_shell", command="echo again > out.txt")   # no prompt needed
+
+
+@POSIX_ONLY
+def test_unattended_refuses_approvals_posix(env):
+    cfg, policy, reg, answers, tmp = env
+    policy.approver = None
+    assert "unattended" in call(reg, policy, "run_shell", command="touch x.txt")
+
+
+@POSIX_ONLY
+def test_windows_only_tools_are_not_offered(env):
+    cfg, policy, reg, answers, tmp = env
+    for name in ("hotkey", "app_click", "launch_app", "schedule_task", "screenshot"):
+        assert name not in reg.tools, name
+    assert "run_shell" in reg.tools and "run_powershell" not in reg.tools
+
+
+@WIN_ONLY
 def test_shell_policy(env):
     cfg, policy, reg, answers, tmp = env
     assert "exit=0" in call(reg, policy, "run_powershell", command="Get-Date | Select-Object Year")
@@ -82,6 +124,7 @@ def test_shell_policy(env):
     assert "secret" in call(reg, policy, "run_powershell", command="Get-Content C:/Users/x/.env")
 
 
+@WIN_ONLY
 def test_session_always_allow(env):
     cfg, policy, reg, answers, tmp = env
     answers.append("a")
@@ -89,6 +132,7 @@ def test_session_always_allow(env):
     assert "exit=0" in call(reg, policy, "run_powershell", command="Write-Output again")  # no prompt needed
 
 
+@WIN_ONLY
 def test_unattended_refuses_approvals(env):
     cfg, policy, reg, answers, tmp = env
     policy.approver = None

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Mochi launcher for Linux. Usage: mochi  |  mochi "task"  |  mochi --gui  |  mochi --unattended --task-file x.txt
+# Works from any folder (and through a symlink in ~/.local/bin): the 'agent' package is found via PYTHONPATH.
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+exec "$here/.venv/bin/python" -m agent.cli "$@"

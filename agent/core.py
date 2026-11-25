@@ -16,6 +16,7 @@ import httpx
 import yaml
 from openai import OpenAI
 
+from .platform_compat import IS_WINDOWS, OS_NAME
 from .policy import Policy
 from .registry import Registry
 from . import smart
@@ -52,7 +53,7 @@ def image_data_url(path: str, max_side: int = VIEW_MAX) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 SYSTEM_PROMPT = """You are {name}, a friendly, cheerful and capable autonomous assistant running locally on the
-user's Windows PC ({host}).
+user's {os_name} ({host}).
 {persona}
 Today is {date}. Your workspace folder is {workspace} — relative paths resolve there and you may freely
 create, edit and organize files inside it. Use tools to actually do the work; don't just describe it.
@@ -113,10 +114,40 @@ def load_config(path: Path | None = None) -> dict:
     cfg["sandbox"]["read_allow"] = [str(_path(p)) for p in cfg["sandbox"].get("read_allow") or []]
     lms = cfg["llm"].get("lms_path") or ""
     if not lms:
-        found = shutil.which("lms") or str(Path.home() / ".lmstudio" / "bin" / "lms.exe")
+        exe = "lms.exe" if IS_WINDOWS else "lms"
+        found = shutil.which("lms") or str(Path.home() / ".lmstudio" / "bin" / exe)
         lms = found
     cfg["llm"]["lms_path"] = os.path.expandvars(lms)
+    if not IS_WINDOWS:   # Linux: bash read-only commands / hard-deny rules instead of the PowerShell ones
+        sh = cfg.setdefault("shell", {})
+        sh["auto_allow"] = list(sh.get("auto_allow") or []) + list(sh.get("auto_allow_posix") or [])
+        sh["hard_deny"] = list(sh.get("hard_deny") or []) + list(sh.get("hard_deny_posix") or [])
     return cfg
+
+
+def api_key(cfg: dict) -> str:
+    """API key for the model server. LM Studio and Ollama ignore it; hosted APIs need a real one, read from the
+    environment variable named by llm.api_key_env (never stored in a file)."""
+    env = cfg["llm"].get("api_key_env") or ""
+    return os.environ.get(env, "") or "lm-studio" if env else "lm-studio"
+
+
+def _auth_headers(cfg: dict) -> dict:
+    k = api_key(cfg)
+    return {} if k == "lm-studio" else {"Authorization": f"Bearer {k}"}
+
+
+def uses_lms(cfg: dict) -> bool:
+    """True when models are managed through LM Studio's `lms` CLI (the Windows default). With llm.backend set
+    to 'openai' (Ollama, llama.cpp server, hosted APIs) or when `lms` is not installed, Mochi only talks to the
+    OpenAI-compatible server at llm.base_url."""
+    backend = (cfg["llm"].get("backend") or "auto").lower()
+    if backend == "lmstudio":
+        return True
+    if backend == "openai":
+        return False
+    lms = cfg["llm"].get("lms_path") or ""
+    return bool(lms) and (os.path.isfile(lms) or shutil.which(lms) is not None)
 
 
 def make_policy(cfg: dict, approver=None) -> Policy:
@@ -136,6 +167,18 @@ def ensure_llm(cfg: dict, log: Callable[[str], None] = print) -> None:
     """Start the LM Studio server and load the model with the configured context if needed."""
     llm = cfg["llm"]
     lms = llm["lms_path"]
+    if not uses_lms(cfg):
+        try:
+            r = httpx.get(f"{llm['base_url']}/models", headers=_auth_headers(cfg), timeout=5)
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"Can't reach the model server at {llm['base_url']} ({e}). Start it first, e.g. "
+                               "`ollama serve`, or fix llm.base_url in config.local.yaml.") from e
+        names = {m.get("id") for m in (r.json().get("data") or [])}
+        if names and llm["model"] not in names:
+            raise RuntimeError(f"The server has no model named {llm['model']!r}. It has: "
+                               f"{', '.join(sorted(n for n in names if n))}. Set llm.model in config.local.yaml.")
+        return
     try:
         httpx.get(f"{llm['base_url']}/models", timeout=3).raise_for_status()
     except httpx.HTTPError:
@@ -169,7 +212,15 @@ def ensure_llm(cfg: dict, log: Callable[[str], None] = print) -> None:
 
 
 def list_models(cfg: dict) -> list[dict]:
-    """Chat models downloaded in LM Studio (embedding models excluded)."""
+    """Chat models downloaded in LM Studio, or listed by the OpenAI-compatible server (embedding models excluded)."""
+    if not uses_lms(cfg):
+        try:
+            r = httpx.get(f"{cfg['llm']['base_url']}/models", headers=_auth_headers(cfg), timeout=10)
+            ids = [m.get("id") for m in (r.json().get("data") or []) if m.get("id")]
+        except (httpx.HTTPError, ValueError):
+            return []
+        return sorted(({"modelKey": i, "type": "llm"} for i in ids if "embed" not in i.lower()),
+                      key=lambda m: m["modelKey"])
     r = subprocess.run([cfg["llm"]["lms_path"], "ls", "--json"], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     try:
@@ -194,7 +245,7 @@ class Agent:
                  on_event: Callable[[str, dict], None] | None = None):
         self.cfg, self.policy = cfg, policy
         self.registry = registry or build_tools(policy, cfg)
-        self.client = OpenAI(base_url=cfg["llm"]["base_url"], api_key="lm-studio", timeout=600)
+        self.client = OpenAI(base_url=cfg["llm"]["base_url"], api_key=api_key(cfg), timeout=600)
         self.on_event = on_event or (lambda kind, data: None)
         self.messages: list[dict] = []
         self.refresh_model_info()
@@ -231,7 +282,7 @@ class Agent:
         idx = skills_index(ws)
         lessons = recent_lessons(ws)
         return {"role": "system", "content": SYSTEM_PROMPT.format(
-            name=self.cfg["agent"]["name"], persona=self._persona(), host=platform.node(),
+            name=self.cfg["agent"]["name"], persona=self._persona(), host=platform.node(), os_name=OS_NAME,
             date=time.strftime("%A %Y-%m-%d %H:%M"), workspace=ws, memory=memory,
             vision_note=VISION_ON if self.vision else VISION_OFF,
             skills=f"\nSkills you have (read_skill for the steps):\n{idx}\n" if idx else "",

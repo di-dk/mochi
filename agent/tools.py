@@ -13,6 +13,7 @@ from pathlib import Path
 
 import httpx
 
+from .platform_compat import IS_WINDOWS, drop_unsupported_tools, open_default, shell_argv
 from .policy import Denied, Policy, is_sensitive_program, is_sensitive_window
 from .registry import Registry
 
@@ -110,12 +111,13 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         return f"Deleted {p}"
 
     # ------------------------------------------------------------------ shell / python
-    @reg.add("run_powershell",
-             "Run a PowerShell command (cwd = workspace). Read-only commands run directly; others ask the user.",
+    @reg.add("run_powershell" if IS_WINDOWS else "run_shell",
+             ("Run a PowerShell command" if IS_WINDOWS else "Run a bash command")
+             + " (cwd = workspace). Read-only commands run directly; others ask the user.",
              {"command": S, "timeout_s": I}, ["command"])
-    def run_powershell(command: str, timeout_s: int = 0):
+    def run_shell(command: str, timeout_s: int = 0):
         policy.check_shell(command)
-        r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+        r = subprocess.run(shell_argv(command),
                            cwd=ws, capture_output=True, text=True, encoding="utf-8", errors="replace",
                            timeout=timeout_s or cfg["shell"]["timeout_s"])
         return f"exit={r.returncode}\n{r.stdout[-8000:]}" + (f"\nSTDERR:\n{r.stderr[-3000:]}" if r.stderr.strip() else "")
@@ -314,7 +316,8 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         return "Browser closed."
 
     # ------------------------------------------------------------------ apps
-    RUNNABLE = {".exe", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".msi", ".lnk", ".scr", ".com", ".hta", ".reg", ".url"}
+    RUNNABLE = {".exe", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".msi", ".lnk", ".scr", ".com", ".hta", ".reg", ".url",
+                ".sh", ".desktop", ".appimage", ".run", ".bin", ".py"}
 
     @reg.add("open_with_default_app",
              "Open a file or URL with its default Windows app (e.g. a PDF in the reader, a URL in the user's browser).",
@@ -324,7 +327,7 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         if not url:
             target = str(policy.check_read(target))
         policy.require("launch", f"Open {target}", sensitive=not url and Path(target).suffix.lower() in RUNNABLE)
-        os.startfile(target)  # noqa: S606
+        open_default(target)
         return f"Opened {target}"
 
     def start_apps() -> list[dict]:
@@ -554,4 +557,5 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
 
     from .tools_extra import add_extra_tools
     add_extra_tools(reg, policy, cfg)
+    drop_unsupported_tools(reg)      # Windows-only tools are not offered on Linux
     return reg

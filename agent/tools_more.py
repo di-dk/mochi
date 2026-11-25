@@ -48,17 +48,15 @@ def _walk_sizes(root: Path, limit: int = 200_000):
 
 
 def add_more_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
-    @reg.add("speak", "Say text out loud through the speakers (Windows voice). Max ~1500 characters.",
+    @reg.add("speak", "Say text out loud through the speakers. Max ~1500 characters.",
              {"text": S}, ["text"])
     def speak(text: str):
         text = text.strip()[:1500]
         if not text:
             return "Nothing to say."
-        script = ("Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer;"
-                  " $s.Speak([Console]::In.ReadToEnd())")
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", script], input=text, capture_output=True,
-                           text=True, encoding="utf-8", errors="replace", timeout=180)
-        return "Spoke it." if r.returncode == 0 else f"Could not speak: {r.stderr.strip()[:200]}"
+        from . import platform_compat as pc
+        ok, err = pc.speak(text)
+        return "Spoke it." if ok else f"Could not speak: {err}"
 
     @reg.add("weather", "Current weather and a 3-day forecast for a city (Open-Meteo, no key needed).",
              {"city": S}, ["city"])

@@ -1,0 +1,11 @@
+# Mochi on Linux with Ollama. Copy to config.local.yaml and edit:  cp config.linux-ollama.example.yaml config.local.yaml
+#
+# Ollama starts with a small context window (often 4096 tokens), which is too small for Mochi's tool prompts.
+# Give it more before you start it, e.g.   OLLAMA_CONTEXT_LENGTH=32768 ollama serve
+# (for a systemd service: `systemctl edit ollama`, add  Environment="OLLAMA_CONTEXT_LENGTH=32768").
+llm:
+  backend: openai                      # no LM Studio: just talk to the OpenAI-compatible server below
+  base_url: http://localhost:11434/v1  # Ollama
+  model: qwen3:14b                     # must match a name in `ollama list`, and the model must support tool calls
+  reasoning_effort: none               # lower latency; set to low/medium/high for thinking models
+  # api_key_env: MOCHI_API_KEY         # only for hosted servers: name of an env var that holds the key

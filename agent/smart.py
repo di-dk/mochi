@@ -10,7 +10,7 @@ CORE = {  # documentation of the always-on set; anything without a group is alwa
     "save_skill", "save_lesson", "remember", "recall", "wait", "use_tools",
 }
 GROUPS: dict[str, set[str]] = {
-    "code": {"run_powershell", "run_python"},
+    "code": {"run_powershell", "run_shell", "run_python"},
     "browser": {"browser_open", "browser_read", "browser_click", "browser_fill", "browser_screenshot",
                 "browser_close", "http_request"},
     "desktop": {"list_windows", "screenshot", "focus_window", "mouse_click", "type_text", "hotkey", "list_apps",
@@ -24,9 +24,9 @@ GROUPS: dict[str, set[str]] = {
                "find_duplicates"},
 }
 GROUP_HELP = {
-    "code": "run PowerShell commands and Python code",
+    "code": "run shell (PowerShell on Windows, bash on Linux) commands and Python code",
     "browser": "her own headless browser (open, read, click, fill, screenshot) and raw HTTP/API requests",
-    "desktop": "Windows apps and windows: launch, inspect, click, type, hotkeys, screenshots, clipboard",
+    "desktop": "desktop apps and windows (Windows: launch, inspect, click, type, hotkeys, screenshots), open files, clipboard",
     "docs": "create and read PDF, Word and Excel/CSV files",
     "media": "ComfyUI images, image editing, viewing images, ffmpeg audio/video, make_video",
     "system": "scheduled tasks, notifications, processes, system info, zip/unzip, speak aloud, weather, disk usage, duplicate files",

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -29,6 +30,8 @@ def skill_dirs(ws: Path) -> list[Path]:
 
 def parse_skill(f: Path) -> dict:
     text = f.read_text(encoding="utf-8", errors="replace")
+    if sys.platform != "win32":   # skills were written for the Windows shell tool
+        text = text.replace("run_powershell", "run_shell")
     name = f.stem
     desc = ""
     m = re.search(r"^description:\s*(.+)$", text, re.M)
