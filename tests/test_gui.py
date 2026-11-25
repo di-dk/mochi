@@ -325,3 +325,22 @@ def test_avatar_serves_each_mood_and_never_a_path(gui):
     odd = httpx.get(f"{base}/avatar.png?mood=../../config&size=big", headers=h)      # unknown mood -> plain neutral
     assert odd.status_code == 200 and odd.content == httpx.get(f"{base}/avatar.png?mood=neutral&size=big", headers=h).content
     assert httpx.get(f"{base}/avatar.png?mood=happy").status_code == 403           # still needs the token
+
+
+def test_avatar_videos_loop_files_are_served_with_ranges(gui):
+    from agent.gui import MOODS
+    app, base, h = gui
+    have = app.avatar_videos()
+    assert set(have) <= set(MOODS)
+    page = httpx.get(f"{base}/?t={app.token}").text
+    assert "__VIDEOS__" not in page and f"const VIDS={json.dumps(have)};" in page
+    for mood in have:
+        for size in ("small", "big"):
+            r = httpx.get(f"{base}/avatar.webm?mood={mood}&size={size}", headers=h)
+            assert r.status_code == 200 and r.headers["content-type"] == "video/webm" and r.content[:4] == b"\x1a\x45\xdf\xa3"
+    if have:
+        part = httpx.get(f"{base}/avatar.webm?mood={have[0]}&size=big", headers={**h, "Range": "bytes=0-9"})
+        assert part.status_code == 206 and len(part.content) == 10
+        odd = httpx.get(f"{base}/avatar.webm?mood=../../x&size=big", headers=h)       # unknown mood -> neutral, never a path
+        assert odd.status_code in (200, 404)
+    assert httpx.get(f"{base}/avatar.webm?mood=happy").status_code == 403                # token required

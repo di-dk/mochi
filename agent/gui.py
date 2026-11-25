@@ -96,6 +96,11 @@ class GuiApp:
                 self.bus.push("fatal", text=self.error)
         threading.Thread(target=boot, daemon=True).start()
 
+    def avatar_videos(self) -> list[str]:
+        """Moods that have a looping video (both sizes) in assets/expressions."""
+        d = ROOT / "assets" / "expressions"
+        return [m for m in MOODS if (d / f"{m}.webm").is_file() and (d / f"{m}_small.webm").is_file()]
+
     def info(self) -> dict:
         return {"name": self.cfg["agent"]["name"], "model": self.cfg["llm"]["model"], "ready": self.agent is not None,
                 "busy": self.busy, "error": self.error}
@@ -442,9 +447,11 @@ def make_handler(app: GuiApp, host_header: str):
                 return
             if u.path == "/":
                 theme = app.theme()
-                html = (page.replace("__TOKEN__", app.token).replace("__NAME__", app.cfg["agent"]["name"])
+                html = (page.replace("__TOKEN__", app.token).replace("__VIDEOS__", json.dumps(app.avatar_videos())).replace("__NAME__", app.cfg["agent"]["name"])
                         .replace("__THEMEATTR__", "" if theme == "auto" else f'data-theme="{theme}"'))
                 self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+            elif u.path == "/avatar.webm":
+                self._avatar_video((q.get("mood") or ["neutral"])[0], (q.get("size") or ["small"])[0])
             elif u.path == "/avatar.png":
                 self._avatar((q.get("mood") or ["neutral"])[0], (q.get("size") or ["small"])[0])
             elif u.path == "/info":
@@ -466,39 +473,8 @@ def make_handler(app: GuiApp, host_header: str):
             else:
                 self._json({"error": "not found"}, 404)
 
-        def _avatar(self, mood: str, size: str):
-            """Her profile picture for a mood (assets/expressions/<mood>.webp, _small for the little one). The mood
-            must be one of MOODS (never a path); a missing picture falls back to the plain portrait."""
-            mood = mood if mood in MOODS else "neutral"
-            big = size == "big"
-            expr = ROOT / "assets" / "expressions" / f"{mood}{'' if big else '_small'}.webp"
-            if expr.is_file():
-                return self._send(200, expr.read_bytes(), "image/webp")
-            f = ROOT / "assets" / ("mochi.png" if big else "mochi_small.png")
-            self._send(200, f.read_bytes() if f.exists() else b"", "image/png")
-
-        def _file(self, rel: str, download: bool = False):
-            """Serve a file from her workspace (with Range support so videos can seek). Only images, video, audio
-            and PDF are shown inline; every other type is sent as a download, never rendered as a page."""
-            if app.agent is None:
-                return self._json({"error": "not allowed"}, 403)
-            ws = app.agent.policy.workspace.resolve()
-            try:
-                p = (ws / rel).resolve()
-                p.relative_to(ws)
-            except Exception:  # noqa: BLE001
-                return self._json({"error": "not allowed"}, 403)
-            if not p.is_file() or app.agent.policy.is_denied(p):
-                return self._json({"error": "not found"}, 404)
-            mime = media.inline_mime(p)
-            extra = {"Accept-Ranges": "bytes"}
-            if download or mime is None:
-                ctype = "application/octet-stream"
-                extra["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote(p.name)
-            else:
-                ctype = mime
-            if ctype != "application/pdf":
-                extra["Content-Security-Policy"] = "sandbox"          # never let a served file run scripts
+        def _stream(self, p: Path, ctype: str, extra: dict):
+            """Send a file in chunks, honouring a Range header so videos can seek."""
             size = p.stat().st_size
             start, end, code = 0, size - 1, 200
             m = re.fullmatch(r"bytes=(\d*)-(\d*)", (self.headers.get("Range") or "").strip())
@@ -533,6 +509,49 @@ def make_handler(app: GuiApp, host_header: str):
                         left -= len(chunk)
             except (BrokenPipeError, ConnectionResetError):
                 pass          # the page closed the video; nothing to do
+
+        def _avatar(self, mood: str, size: str):
+            """Her profile picture for a mood (assets/expressions/<mood>.webp, _small for the little one). The mood
+            must be one of MOODS (never a path); a missing picture falls back to the plain portrait."""
+            mood = mood if mood in MOODS else "neutral"
+            big = size == "big"
+            expr = ROOT / "assets" / "expressions" / f"{mood}{'' if big else '_small'}.webp"
+            if expr.is_file():
+                return self._send(200, expr.read_bytes(), "image/webp")
+            f = ROOT / "assets" / ("mochi.png" if big else "mochi_small.png")
+            self._send(200, f.read_bytes() if f.exists() else b"", "image/png")
+
+        def _avatar_video(self, mood: str, size: str):
+            """Her looping expression video (assets/expressions/<mood>[_small].webm); the mood is whitelisted."""
+            mood = mood if mood in MOODS else "neutral"
+            f = ROOT / "assets" / "expressions" / f"{mood}{'' if size == 'big' else '_small'}.webm"
+            if not f.is_file():
+                return self._json({"error": "not found"}, 404)
+            self._stream(f, "video/webm", {"Accept-Ranges": "bytes"})
+
+        def _file(self, rel: str, download: bool = False):
+            """Serve a file from her workspace (with Range support so videos can seek). Only images, video, audio
+            and PDF are shown inline; every other type is sent as a download, never rendered as a page."""
+            if app.agent is None:
+                return self._json({"error": "not allowed"}, 403)
+            ws = app.agent.policy.workspace.resolve()
+            try:
+                p = (ws / rel).resolve()
+                p.relative_to(ws)
+            except Exception:  # noqa: BLE001
+                return self._json({"error": "not allowed"}, 403)
+            if not p.is_file() or app.agent.policy.is_denied(p):
+                return self._json({"error": "not found"}, 404)
+            mime = media.inline_mime(p)
+            extra = {"Accept-Ranges": "bytes"}
+            if download or mime is None:
+                ctype = "application/octet-stream"
+                extra["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote(p.name)
+            else:
+                ctype = mime
+            if ctype != "application/pdf":
+                extra["Content-Security-Policy"] = "sandbox"          # never let a served file run scripts
+            self._stream(p, ctype, extra)
 
         def do_POST(self):
             if not self._ok():
