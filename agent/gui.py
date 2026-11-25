@@ -5,7 +5,7 @@ window with pywebview. It drives the same Agent as the terminal.
 
 Safety: the server listens on 127.0.0.1 only, every request needs a random per-run token, and the Host header
 must be the local address (stops other web pages from talking to her). Files are served only from her workspace
-and only if they are images.
+and only images, video, audio and PDF are shown inline (anything else is a download).
 """
 from __future__ import annotations
 
@@ -16,17 +16,19 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import attach
+from . import attach, media
 from .history import ChatStore, clean_messages, new_id, title_from
 from .core import ROOT, STOPPED, Agent, ensure_llm, list_models, make_policy, save_local_setting
 
 WEB = Path(__file__).parent / "web"
 IMAGE_EXT = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
              ".gif": "image/gif"}
-PATH_RE = re.compile(r"""(?:[A-Za-z]:[\\/]|\.{0,2}[\\/])?[^\s"'<>|*?:]+\.(?:png|jpe?g|webp|gif)""", re.I)
+PATH_RE = re.compile(r"""(?:[A-Za-z]:[\\/]|\.{0,2}[\\/])?[^\s"'<>|*?:]+\.(?:png|jpe?g|webp|gif|bmp|avif|mp4|m4v|webm|mov|mkv|ogv)""", re.I)
+SHARE_RE = re.compile(r"\[\[shared:([^\]|]+)(?:\|([^\]]*))?\]\]")   # written by the share_file tool
 MAX_EVENTS = 20000
+MOODS = ("neutral", "happy", "excited", "thinking", "working", "asking", "worried", "sad", "sleepy")
 THEMES = ("auto", "mochi-dark", "mochi-light", "sakura", "lavender", "mint", "midnight", "ocean",
           "forest", "sunset", "graphite")
 MAX_UPLOAD = 2 * 1024**3          # 2 GB per file
@@ -116,28 +118,48 @@ class GuiApp:
                 if item["t"] == "step":
                     item["result"], item["error"] = result[:1500], err
                     break
-            self._pictures(result)
+            self._media(result)
         elif kind == "note":
             self.transcript.append({"t": "bot", "text": data["text"]})
         elif kind in ("skill", "steer", "check", "nudge", "condense", "image"):
             self.bus.push("info", what=kind, text=str(data.get("name") or data.get("text") or ""))
 
-    def _pictures(self, text: str) -> None:
-        """Show images the tools just made, when they sit inside her workspace."""
+    def _file_item(self, p: Path, rel: str, caption: str = "") -> dict:
+        return {"rel": rel, "name": p.name, "type": media.kind_of(p), "size": p.stat().st_size, "caption": caption,
+                "path": str(p)}
+
+    def _media(self, text: str) -> None:
+        """Show files in the chat: everything she shares with share_file, plus images and videos that tools just
+        made, when they sit inside her workspace."""
         if not self.agent:
             return
-        seen = set()
+        ws = self.agent.policy.workspace.resolve()
+        seen: set[str] = set()
+
+        def show(p: Path, caption: str = "") -> bool:
+            try:
+                rel = p.resolve().relative_to(ws).as_posix()
+            except Exception:  # noqa: BLE001
+                return False
+            if rel in seen or not p.is_file() or self.agent.policy.is_denied(p.resolve()):
+                return False
+            seen.add(rel)
+            item = self._file_item(p.resolve(), rel, caption)
+            self.bus.push("file", **item)
+            self.transcript.append({"t": "file", **item})
+            return True
+
+        for m in SHARE_RE.finditer(text):
+            show(ws / m.group(1), m.group(2) or "")
+        found = 0
         for m in PATH_RE.findall(text):
             try:
                 p = self.agent.policy.resolve(m)
-                rel = p.relative_to(self.agent.policy.workspace.resolve()).as_posix()
             except Exception:  # noqa: BLE001
                 continue
-            if rel not in seen and p.is_file():
-                seen.add(rel)
-                self.bus.push("picture", rel=rel, name=p.name)
-                self.transcript.append({"t": "picture", "rel": rel, "name": p.name})
-                if len(seen) >= 4:
+            if show(p):
+                found += 1
+                if found >= 4:
                     break
 
     # ------------------------------------------------------------------ approvals
@@ -201,7 +223,8 @@ class GuiApp:
             dest.unlink(missing_ok=True)
             raise ValueError("upload was cut short")
         rel = dest.relative_to(self.agent.policy.workspace.resolve()).as_posix()
-        return {"rel": rel, "name": dest.name, "image": dest.suffix.lower() in IMAGE_EXT, "size": length}
+        return {"rel": rel, "name": dest.name, "image": dest.suffix.lower() in IMAGE_EXT,
+                "type": media.kind_of(dest), "size": length}
 
     def send(self, text: str, files: list | None = None) -> str:
         text = (text or "").strip()
@@ -218,7 +241,8 @@ class GuiApp:
                 return "busy"
             return self.new_chat()
         shown = [{"name": p.name, "rel": p.relative_to(self.agent.policy.workspace.resolve()).as_posix(),
-                  "image": p.suffix.lower() in IMAGE_EXT} for p in paths]
+                  "image": p.suffix.lower() in IMAGE_EXT, "type": media.kind_of(p), "size": p.stat().st_size}
+                 for p in paths]
         if self.busy:
             note = self.agent.attach_note(paths)[0] if paths else ""
             self.agent.inbox.put(text + note)
@@ -422,8 +446,7 @@ def make_handler(app: GuiApp, host_header: str):
                         .replace("__THEMEATTR__", "" if theme == "auto" else f'data-theme="{theme}"'))
                 self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
             elif u.path == "/avatar.png":
-                f = ROOT / "assets" / "mochi_small.png"
-                self._send(200, f.read_bytes() if f.exists() else b"", "image/png")
+                self._avatar((q.get("mood") or ["neutral"])[0], (q.get("size") or ["small"])[0])
             elif u.path == "/info":
                 self._json(app.info())
             elif u.path == "/state":
@@ -439,13 +462,25 @@ def make_handler(app: GuiApp, host_header: str):
                 except Exception as e:  # noqa: BLE001
                     self._json({"models": [], "error": str(e)})
             elif u.path == "/file":
-                self._file((q.get("p") or [""])[0])
+                self._file((q.get("p") or [""])[0], download=(q.get("dl") or [""])[0] == "1")
             else:
                 self._json({"error": "not found"}, 404)
 
-        def _file(self, rel: str):
-            ext = Path(rel).suffix.lower()
-            if app.agent is None or ext not in IMAGE_EXT:
+        def _avatar(self, mood: str, size: str):
+            """Her profile picture for a mood (assets/expressions/<mood>.webp, _small for the little one). The mood
+            must be one of MOODS (never a path); a missing picture falls back to the plain portrait."""
+            mood = mood if mood in MOODS else "neutral"
+            big = size == "big"
+            expr = ROOT / "assets" / "expressions" / f"{mood}{'' if big else '_small'}.webp"
+            if expr.is_file():
+                return self._send(200, expr.read_bytes(), "image/webp")
+            f = ROOT / "assets" / ("mochi.png" if big else "mochi_small.png")
+            self._send(200, f.read_bytes() if f.exists() else b"", "image/png")
+
+        def _file(self, rel: str, download: bool = False):
+            """Serve a file from her workspace (with Range support so videos can seek). Only images, video, audio
+            and PDF are shown inline; every other type is sent as a download, never rendered as a page."""
+            if app.agent is None:
                 return self._json({"error": "not allowed"}, 403)
             ws = app.agent.policy.workspace.resolve()
             try:
@@ -455,7 +490,49 @@ def make_handler(app: GuiApp, host_header: str):
                 return self._json({"error": "not allowed"}, 403)
             if not p.is_file() or app.agent.policy.is_denied(p):
                 return self._json({"error": "not found"}, 404)
-            self._send(200, p.read_bytes(), IMAGE_EXT[ext])
+            mime = media.inline_mime(p)
+            extra = {"Accept-Ranges": "bytes"}
+            if download or mime is None:
+                ctype = "application/octet-stream"
+                extra["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote(p.name)
+            else:
+                ctype = mime
+            if ctype != "application/pdf":
+                extra["Content-Security-Policy"] = "sandbox"          # never let a served file run scripts
+            size = p.stat().st_size
+            start, end, code = 0, size - 1, 200
+            m = re.fullmatch(r"bytes=(\d*)-(\d*)", (self.headers.get("Range") or "").strip())
+            if m and (m.group(1) or m.group(2)) and size:
+                a, b = m.groups()
+                if not a:
+                    start = max(0, size - int(b))
+                else:
+                    start, end = int(a), min(int(b), size - 1) if b else size - 1
+                if start > end or start >= size:
+                    return self._send(416, b"", "text/plain", {"Content-Range": f"bytes */{size}"})
+                code = 206
+                extra["Content-Range"] = f"bytes {start}-{end}/{size}"
+            length = max(0, end - start + 1)
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(length))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            for k, v in extra.items():
+                self.send_header(k, v)
+            self.end_headers()
+            try:
+                with p.open("rb") as f:
+                    f.seek(start)
+                    left = length
+                    while left > 0:
+                        chunk = f.read(min(1 << 20, left))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        left -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass          # the page closed the video; nothing to do
 
         def do_POST(self):
             if not self._ok():

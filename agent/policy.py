@@ -21,7 +21,8 @@ import re as _re
 SENSITIVE_WINDOW = _re.compile(
     r"powershell|command prompt|cmd\.exe|\bterminal\b|windows terminal|^run$|registry editor|regedit|task manager|"
     r"task scheduler|user account control|credential|password|bitlocker|services|group policy|"
-    r"device manager|disk management|mochi", _re.I)
+    r"device manager|disk management|mochi|konsole|xterm|alacritty|wezterm|tilix|polkit|authentication required|"
+    r"keyring|seahorse|\bsudo\b", _re.I)
 # Programs that are effectively shells/installers -> launching them always asks.
 SENSITIVE_PROGRAMS = {"powershell", "pwsh", "cmd", "wt", "bash", "wsl", "python", "pythonw", "py", "node", "reg",
                       "regedit", "msiexec", "schtasks", "rundll32", "mshta", "wscript", "cscript", "certutil",

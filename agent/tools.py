@@ -557,5 +557,8 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
 
     from .tools_extra import add_extra_tools
     add_extra_tools(reg, policy, cfg)
-    drop_unsupported_tools(reg)      # Windows-only tools are not offered on Linux
+    drop_unsupported_tools(reg)      # drop the Windows implementations on Linux ...
+    if not IS_WINDOWS:               # ... and register the Linux ones whose backend works on this machine
+        from .tools_linux import add_linux_tools
+        add_linux_tools(reg, policy, cfg)
     return reg

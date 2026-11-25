@@ -61,17 +61,47 @@ mochi                                                   # chat, or: mochi "task"
 she only talks to `llm.base_url`. Set `backend: openai` to force that. For a hosted API, put the key in an environment
 variable and name it in `llm.api_key_env` (the key is never stored in a file).
 
-**What works.** Files, web search and fetch, the headless browser, documents (PDF/Word/Excel), image tools, ffmpeg media,
-ComfyUI, skills and lessons, memory, clipboard (`wl-clipboard`, `xclip` or `xsel`), notifications (`notify-send`),
-speech (`spd-say` or `espeak-ng`), and the safety rules. The shell tool is `run_shell` (bash) instead of
-`run_powershell`; read-only commands such as `ls`, `pwd`, `date` run directly, everything else asks first.
+**What works.** Everything except what needs Windows itself: files, web, the headless browser, documents, images,
+ffmpeg media, ComfyUI, skills, memory and the safety rules, plus Linux versions of the desktop tools. The shell tool is
+`run_shell` (bash) instead of `run_powershell`; read-only commands such as `ls`, `pwd` and `date` run directly,
+everything else asks first.
 
-**What is Windows-only** (not offered to the model on Linux): Windows app control (`list_apps`, `launch_app`, `app_*`),
-mouse and keyboard control (`list_windows`, `focus_window`, `mouse_click`, `type_text`, `hotkey`, `screenshot`) and Task
-Scheduler (`schedule_task` and friends). Use `browser_screenshot` for vision on web pages.
+| Tool | How it works on Linux | Needs |
+|---|---|---|
+| `list_apps`, `launch_app` | the apps in your menu (`.desktop` files), started with `gio launch` | nothing extra |
+| `schedule_task` and friends | systemd user timers (`systemctl --user list-timers 'mochi-*'`); run while you are logged in | systemd |
+| `list_windows`, `app_inspect`, `app_read`, `app_click`, `app_set_text`, `app_close`, `focus_window` | accessibility (AT-SPI), no mouse needed, works on Wayland and X11 for apps that expose accessibility (GTK, Qt, Electron/Chromium with accessibility on) | `sudo apt install python3-gi gir1.2-atspi-2.0 at-spi2-core`, and `setup.sh` run after that |
+| `mouse_click`, `type_text`, `hotkey`, `app_keys` | a virtual keyboard and pointer through `/dev/uinput`; they always ask first. `type_text` sends US-layout key codes, so it refuses other keyboard layouts (use `app_set_text`) | write access to `/dev/uinput` |
+| `screenshot` | `grim` (Wayland), or `gnome-screenshot` / `spectacle` / `scrot` | `sudo apt install grim` |
+| clipboard, notifications, speech | `wl-clipboard` or `xclip`, `notify-send`, `spd-say` or `espeak-ng` | install the one you want |
+
+A tool is only offered to the model when its backend works on your machine; the rest are left out. Mouse and
+keyboard control on Wayland depends on your compositor, so check a first click with a screenshot. Use
+`browser_screenshot` for vision on web pages.
 
 Her own window (`mochi --gui` / `mochi-window`) opens in your browser; install `pywebview` for a native window.
 `./setup.sh --uninstall` removes the command and menu entry.
+
+## Files and photos in the chat
+
+She can show you any file. Images and videos appear as small thumbnails; click one to see it big (videos play with
+a seek bar). Audio plays in the chat, and PDFs, documents, archives and every other type get a download card. Each card
+shows the file's path with a **copy path** button. Ask her things like "show me the picture you just made", "find my
+latest video" or "send me that PDF": `find_my_files` looks through her workspace (newest first, by kind, name or age)
+and `share_file` puts the result in the chat. A file outside her workspace is copied into `workspace/shared` first
+(she asks before reading it), and credential files are never shared.
+
+`image_edit` edits photos without touching the original: auto-orient, crop, rotate, flip, resize, brightness, contrast,
+saturation, sharpness, blur, grayscale, sepia, invert and auto-contrast, saved as png/jpg/webp/gif/bmp/ico. The result
+appears in the chat.
+
+## Her moods
+
+Her profile picture is a close-up that changes with how she feels: relaxed, happy, excited (a long task, or you
+thanked her), thinking, working (while she uses tools), asking (she needs your OK), worried (something failed), sad
+(you denied a request, stopped her, or a hard error) and sleepy (nothing happening for a couple of minutes). Click
+the picture for the big version. The pictures are in `assets/expressions/<mood>.webp` (512 px) and
+`<mood>_small.webp` (160 px); replace them with your own to change her look.
 
 ## Use
 

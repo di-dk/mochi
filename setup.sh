@@ -22,7 +22,15 @@ done
 [[ -n "$py" ]] || { echo "Python 3.11+ not found. Install it (e.g. sudo apt install python3 python3-venv)." >&2; exit 1; }
 echo "Using Python: $($py --version)"
 
-[[ -d .venv ]] || "$py" -m venv .venv || { echo "Could not create a venv. On Debian/Ubuntu: sudo apt install python3-venv" >&2; exit 1; }
+# App control (app_inspect, app_click, ...) uses AT-SPI through PyGObject, which comes from the system packages
+# (sudo apt install python3-gi gir1.2-atspi-2.0). If they are present, let the venv see them.
+venv_args=()
+if "$py" -c 'import gi; gi.require_version("Atspi", "2.0")' 2>/dev/null; then venv_args=(--system-site-packages); fi
+[[ -d .venv ]] || "$py" -m venv "${venv_args[@]}" .venv || { echo "Could not create a venv. On Debian/Ubuntu: sudo apt install python3-venv" >&2; exit 1; }
+if [[ ${#venv_args[@]} -eq 0 ]]; then
+  echo "Note: PyGObject/AT-SPI not found, so Windows/app control tools will be unavailable."
+  echo "      Install with: sudo apt install python3-gi gir1.2-atspi-2.0 at-spi2-core   (then re-run ./setup.sh in a fresh .venv)"
+fi
 .venv/bin/python -m pip install --upgrade pip -q
 .venv/bin/python -m pip install -r requirements.txt -q
 if [[ "${1:-}" != "--no-browser" ]]; then .venv/bin/python -m playwright install chromium; fi

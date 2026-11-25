@@ -104,9 +104,12 @@ def test_unattended_refuses_approvals_posix(env):
 @POSIX_ONLY
 def test_windows_only_tools_are_not_offered(env):
     cfg, policy, reg, answers, tmp = env
-    for name in ("hotkey", "app_click", "launch_app", "schedule_task", "screenshot"):
-        assert name not in reg.tools, name
+    # the Windows implementations are gone; Linux ones are only registered when their backend exists
     assert "run_shell" in reg.tools and "run_powershell" not in reg.tools
+    assert {"list_apps", "launch_app", "screenshot"} <= set(reg.tools)
+    import shutil
+    assert ("schedule_task" in reg.tools) == bool(shutil.which("systemctl"))
+    assert "win32" not in repr(reg.tools["launch_app"].fn.__code__.co_names)
 
 
 @WIN_ONLY

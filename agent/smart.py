@@ -18,7 +18,7 @@ GROUPS: dict[str, set[str]] = {
                 "app_keys", "app_close", "clipboard_get", "clipboard_set"},
     "docs": {"create_pdf", "inspect_pdf", "create_docx", "read_document", "read_spreadsheet", "create_spreadsheet"},
     "media": {"comfy_status", "comfy_list_models", "comfy_txt2img", "comfy_run_workflow", "image_edit",
-              "view_image", "media_convert", "media_info", "make_video", "list_my_videos"},
+              "view_image", "media_convert", "media_info", "make_video", "list_my_videos", "share_file", "find_my_files"},
     "system": {"schedule_task", "list_scheduled_tasks", "delete_scheduled_task", "system_info", "list_processes",
                "kill_process", "notify", "zip_files", "unzip", "speak", "weather", "disk_usage",
                "find_duplicates"},
@@ -28,7 +28,7 @@ GROUP_HELP = {
     "browser": "her own headless browser (open, read, click, fill, screenshot) and raw HTTP/API requests",
     "desktop": "desktop apps and windows (Windows: launch, inspect, click, type, hotkeys, screenshots), open files, clipboard",
     "docs": "create and read PDF, Word and Excel/CSV files",
-    "media": "ComfyUI images, image editing, viewing images, ffmpeg audio/video, make_video",
+    "media": "ComfyUI images, editing photos, viewing images, sharing files/images/videos in the chat, ffmpeg audio/video, make_video",
     "system": "scheduled tasks, notifications, processes, system info, zip/unzip, speak aloud, weather, disk usage, duplicate files",
 }
 # Words in a request that load a group straight away (whole words, lower case).
@@ -44,7 +44,8 @@ KEYWORDS: dict[str, set[str]] = {
              "sheet", "table", "invoice", "minutes"},
     "media": {"image", "images", "picture", "pictures", "photo", "draw", "drawing", "art", "banner", "logo",
               "video", "videos", "audio", "gif", "mp3", "mp4", "comfy", "comfyui", "meme", "convert", "resize",
-              "crop", "thumbnail", "wallpaper", "quiz", "short", "shorts"},
+              "crop", "thumbnail", "wallpaper", "quiz", "short", "shorts", "share", "find", "recent", "latest", "generated", "brighten",
+              "sepia", "blur", "flip", "rotate"},
     "system": {"schedule", "scheduled", "every", "daily", "weekly", "hourly", "remind", "reminder", "monitor",
                "watch", "alert", "notify", "process", "processes", "cpu", "ram", "disk", "gpu", "zip", "unzip",
                "battery", "weather", "forecast", "temperature", "speak", "aloud", "voice", "duplicate",

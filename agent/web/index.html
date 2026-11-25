@@ -47,7 +47,8 @@ button:disabled{opacity:.45;cursor:default}
 #side{width:272px;flex:none;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 #side .top{padding:12px 12px 8px;display:flex;flex-direction:column;gap:8px}
 #side .brand{display:flex;align-items:center;gap:10px;font-weight:600}
-#side .brand img{width:34px;height:34px;border-radius:50%;object-fit:cover;object-position:top;border:2px solid var(--pink)}
+#side .brand img{width:48px;height:48px;border-radius:50%;object-fit:cover;object-position:center;border:2px solid var(--pink);transition:opacity .2s}
+#side .brand small{display:block;font-weight:400;font-size:12px;color:var(--dim)}
 #side input{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;outline:none}
 #side input:focus{border-color:var(--pink)}
 #chatlist{flex:1;overflow-y:auto;padding:4px 8px 12px}
@@ -76,7 +77,7 @@ header .sp{flex:1}
 .wrap{max-width:820px;margin:0 auto;padding:0 16px}
 .row{display:flex;gap:10px;margin:14px 0;align-items:flex-start}
 .row.user{justify-content:flex-end}
-.row .av{width:34px;height:34px;border-radius:50%;object-fit:cover;object-position:top;flex:none;border:1px solid var(--pink)}
+.row .av{width:40px;height:40px;border-radius:50%;object-fit:cover;object-position:center;flex:none;border:1px solid var(--pink)}
 .bubble{max-width:88%;padding:10px 14px;border-radius:16px;overflow-wrap:anywhere}
 .user .bubble{background:var(--pink2);color:#fff;border-bottom-right-radius:4px}
 .user .bubble .txt{white-space:pre-wrap}
@@ -93,6 +94,31 @@ header .sp{flex:1}
 .files{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
 .files img{max-width:200px;max-height:160px;border-radius:10px;display:block}
 .fchip{background:rgba(255,255,255,.18);border-radius:8px;padding:2px 9px;font-size:13px}
+/* shared files: small thumbnail cards, click for the big view */
+.fcard{position:relative;display:inline-block;max-width:240px;margin:4px 6px 0 0;vertical-align:top;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--panel2);color:var(--text)}
+.fcard.image,.fcard.video{cursor:zoom-in}
+.fcard .thumb{display:block;max-width:240px;max-height:170px;min-width:90px;min-height:60px;object-fit:cover;background:#000}
+.fcard .play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:30px;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.7);background:rgba(0,0,0,.18);pointer-events:none}
+.fcard.row2{display:flex;align-items:center;gap:10px;padding:9px 12px;max-width:340px}
+.fcard .ficon{font-size:26px}.fcard .fmeta{min-width:0}.fcard .fname{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.fcard .fsub{font-size:12px;color:var(--dim)}.fcard a{color:var(--pink);font-size:12px;text-decoration:none;margin-right:10px}
+.fcard audio{display:block;width:240px;margin:6px 8px 4px}.fcard .acap{font-size:12px;padding:6px 10px 0;color:var(--dim)}
+.fcap{font-size:12px;color:var(--dim);margin:2px 0 4px}
+.fpath{display:flex;align-items:center;gap:6px;max-width:240px;margin:3px 6px 2px 0;font:11px Consolas,monospace;color:var(--dim)}
+.fpath span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.fpath button{background:none;border:1px solid var(--line);color:var(--dim);border-radius:6px;font-size:11px;padding:0 6px;cursor:pointer}
+.fpath button:hover{color:var(--pink);border-color:var(--pink)}
+.fcard .fpath{max-width:none;margin:2px 0 0}
+.av,.brand img,.hero img{cursor:zoom-in}
+.user .fcard{border-color:rgba(255,255,255,.3)}
+#lb{position:fixed;inset:0;z-index:50;background:rgba(10,6,14,.92);display:none;flex-direction:column;align-items:center;justify-content:center;padding:18px}
+#lb.open{display:flex}
+#lbbody{flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center}
+#lbbody img,#lbbody video{max-width:96vw;max-height:84vh;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.6);background:#000}
+#lbbody iframe{width:min(1000px,96vw);height:84vh;border:0;border-radius:8px;background:#fff}
+#lbbar{display:flex;gap:16px;align-items:center;color:#eee;font-size:13px;margin-top:10px;max-width:96vw}
+#lbbar a{color:var(--pink);text-decoration:none}
+#lbx{position:absolute;top:14px;right:18px;background:none;border:0;color:#fff;font-size:28px;cursor:pointer}
 .queued{opacity:.65}
 .meta{font-size:12px;color:var(--dim);margin:2px 0 0 44px}
 .step{margin:4px 0 4px 44px;font-size:13px;color:var(--dim);border-left:2px solid var(--line);padding-left:10px}
@@ -114,7 +140,7 @@ header .sp{flex:1}
 .think i:nth-child(2){animation-delay:.2s}.think i:nth-child(3){animation-delay:.4s}
 @keyframes p{0%,80%,100%{opacity:.25}40%{opacity:1}}
 .hero{text-align:center;margin-top:10vh;color:var(--dim)}
-.hero img{width:130px;border-radius:50%;border:3px solid var(--pink);margin-bottom:10px}
+.hero img{width:160px;border-radius:50%;border:3px solid var(--pink);margin-bottom:10px}
 .hero h2{color:var(--text);margin:.2em 0}
 .chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:16px}
 .chips button{border-radius:20px}
@@ -158,7 +184,7 @@ textarea:focus{border-color:var(--pink)}
 <body>
 <aside id="side">
   <div class="top">
-    <div class="brand"><img src="/avatar.png?t=__TOKEN__" alt=""><span>__NAME__</span></div>
+    <div class="brand"><img src="/avatar.png?t=__TOKEN__&mood=neutral&size=small" alt=""><div><span>__NAME__</span><small id="moodtxt">relaxed</small></div></div>
     <button id="newchat" class="primary">＋ New chat</button>
     <input id="q" placeholder="Search chats" autocomplete="off">
   </div>
@@ -192,13 +218,14 @@ textarea:focus{border-color:var(--pink)}
 </div>
 <div id="drop">Drop files to attach them 📎</div>
 
+<div id="lb" onclick="if(event.target===this||event.target.id==='lbbody')closeLB()"><button id="lbx" title="Close (Esc)" onclick="closeLB()">✕</button><div id="lbbody"></div><div id="lbbar"><span id="lbname"></span><a id="lbdl" download>⬇ Download</a></div></div>
 <script>
 const TOKEN="__TOKEN__", NAME="__NAME__";
 const $=id=>document.getElementById(id);
 const log=$("log"), chat=$("chat"), inp=$("inp");
 let since=0, cur=null, curText="", busy=false, ready=false, thinkEl=null, stick=true;
 let chatId=null, chatList=[], files=[];
-const AV="/avatar.png?t="+TOKEN;
+let AV="/avatar.png?t="+TOKEN+"&mood=neutral&size=small";   // her current expression (see setMood)
 const fileUrl=rel=>"/file?t="+TOKEN+"&p="+encodeURIComponent(rel);
 
 /* ------------------------------------------------------------------ markdown */
@@ -258,13 +285,62 @@ function hero(){
   log.appendChild(h);
 }
 function clearHero(){const h=$("hero");if(h)h.remove()}
+const KIND_ICON={pdf:"📕",audio:"🎵",video:"🎬",image:"🖼️",doc:"📄",archive:"🗜️",other:"📎"};
+function fmtSize(n){ if(typeof n!=="number") return ""; const u=["B","KB","MB","GB"]; let i=0; while(n>=1024&&i<3){n/=1024;i++} return (i?n.toFixed(1):n)+" "+u[i]; }
+function copyText(s,btn){
+  const ok=()=>{ if(btn){const o=btn.textContent; btn.textContent="✓ copied"; setTimeout(()=>btn.textContent=o,1200)} };
+  if(navigator.clipboard&&window.isSecureContext){ navigator.clipboard.writeText(s).then(ok,()=>fallbackCopy(s,ok)); } else fallbackCopy(s,ok);
+}
+function fallbackCopy(s,done){ const t=document.createElement("textarea"); t.value=s; t.style.position="fixed"; t.style.opacity="0"; document.body.appendChild(t); t.select(); try{document.execCommand("copy");done()}catch(e){} t.remove(); }
+function pathRow(f){
+  if(!f.path) return null;
+  const r=mk("fpath"); const s=document.createElement("span"); const parts=f.path.split(/[\\/]/); s.textContent=(parts.length>3?"…/":"")+parts.slice(-3).join("/"); s.title=f.path;
+  const b=document.createElement("button"); b.textContent="📋 copy path"; b.onclick=e=>{e.stopPropagation();copyText(f.path,b)};
+  r.appendChild(s); r.appendChild(b); return r;
+}
+function downloadCard(f){
+  const kind=f.type||"other";
+  const c=mk("fcard row2 "+kind,`<div class="ficon">${KIND_ICON[kind]||"📎"}</div><div class="fmeta"><div class="fname" title="${esc(f.name)}">${esc(f.name)}</div><div class="fsub">${esc(fmtSize(f.size))}</div></div>`);
+  const m=c.querySelector(".fmeta"); const pr=pathRow(f); if(pr) m.appendChild(pr); const dl=document.createElement("a"); dl.href=fileUrl(f.rel)+"&dl=1"; dl.setAttribute("download",f.name); dl.textContent="⬇ Download"; m.appendChild(dl);
+  if(kind==="pdf"){ const o=document.createElement("a"); o.href="#"; o.textContent="👁 View"; o.onclick=e=>{e.preventDefault();openLB(f)}; m.appendChild(o); }
+  return c;
+}
+function mediaNode(f){
+  const kind=f.type||(f.image?"image":"other");
+  const box=document.createElement("span"); box.style.display="inline-block"; box.style.verticalAlign="top";
+  let c;
+  if(kind==="image"){
+    c=mk("fcard image"); const im=new Image(); im.className="thumb"; im.alt=f.name; im.title=f.name; im.onload=scroll; im.onerror=()=>{c.replaceWith(downloadCard(f))}; im.src=fileUrl(f.rel); c.appendChild(im); c.onclick=()=>openLB(f);
+  } else if(kind==="video"){
+    c=mk("fcard video"); const v=document.createElement("video"); v.className="thumb"; v.muted=true; v.preload="metadata"; v.playsInline=true; v.title=f.name;
+    v.onloadeddata=scroll; v.onerror=()=>{c.replaceWith(downloadCard(f))}; v.src=fileUrl(f.rel)+"#t=0.1"; c.appendChild(v); c.appendChild(mk("play","▶")); c.onclick=()=>openLB(f);
+  } else if(kind==="audio"){
+    c=mk("fcard audio"); c.appendChild(mk("acap","🎵 "+esc(f.name))); const a=document.createElement("audio"); a.controls=true; a.preload="none"; a.src=fileUrl(f.rel); c.appendChild(a);
+  } else c=downloadCard(f);
+  box.appendChild(c);
+  if(f.caption){ box.appendChild(mk("fcap",esc(f.caption))); }
+  if(kind!=="other"&&kind!=="doc"&&kind!=="archive"&&!(c.classList.contains("row2"))){ const pr=pathRow(f); if(pr) box.appendChild(pr); }
+  return box;
+}
+function openLB(f){
+  const kind=f.type||(f.image?"image":"other"), body=$("lbbody"); body.innerHTML=""; const url=f.url||fileUrl(f.rel);
+  if(kind==="image"){ const im=new Image(); im.src=url; im.alt=f.name; body.appendChild(im); }
+  else if(kind==="video"){ const v=document.createElement("video"); v.src=url; v.controls=true; v.autoplay=true; v.playsInline=true; body.appendChild(v); }
+  else if(kind==="pdf"){ const fr=document.createElement("iframe"); fr.src=url; body.appendChild(fr); }
+  else return;
+  $("lbname").textContent=f.name+(f.size?"  ·  "+fmtSize(f.size):""); const dl=$("lbdl"); dl.href=f.url?url:url+"&dl=1"; dl.setAttribute("download",f.name);
+  $("lb").classList.add("open");
+}
+/* the profile picture opens big when clicked (chat avatars, sidebar, welcome screen) */
+document.addEventListener("click",e=>{ const im=e.target.closest&&e.target.closest("img.av,.brand img,.hero img"); if(im) openLB({url:im.src.replace("size=small","size=big"),name:NAME+(im.closest("#side")?" · "+$("moodtxt").textContent:""),type:"image"}); });
+function closeLB(){ const lb=$("lb"); lb.classList.remove("open"); $("lbbody").innerHTML=""; }
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&$("lb").classList.contains("open")) closeLB(); });
 function userBubble(text,queued,fl){
   clearHero(); cur=null;
   const r=mk("row user"+(queued?" queued":"")); const b=mk("bubble");
   if(fl&&fl.length){
     const f=mk("files");
-    fl.forEach(x=>{ if(x.image){const im=new Image();im.src=fileUrl(x.rel);im.alt=x.name;im.onload=scroll;f.appendChild(im)}
-                    else f.appendChild(mk("fchip","📄 "+esc(x.name))) });
+    fl.forEach(x=>f.appendChild(mediaNode(x)));
     b.appendChild(f);
   }
   if(text||queued){ const t=mk("txt"); t.textContent=(text||"")+(queued?"  (sent while she works)":""); b.appendChild(t); }
@@ -284,10 +360,10 @@ function stepEl(name,args,result,error){
   d.innerHTML=`<summary><span class="n">→ ${esc(name)}</span> <span>${esc((args||"").slice(0,110))}</span></summary><pre></pre>`;
   d.querySelector("pre").textContent=(args||"")+(result?"\n\n"+result:""); return d;
 }
-function pictureRow(rel,name){
-  const r=mk("row bot",`<img class="av" src="${AV}">`); const b=mk("bubble");
-  const im=new Image(); im.className="pic"; im.alt=name; im.onload=scroll; im.src=fileUrl(rel); b.appendChild(im); r.appendChild(b); return r;
+function fileRow(f){
+  const r=mk("row bot",`<img class="av" src="${AV}">`); const b=mk("bubble"); b.appendChild(mediaNode(f)); r.appendChild(b); return r;
 }
+function pictureRow(rel,name){ return fileRow({rel,name,type:"image"}); }   // chats saved before v0.7.1
 function renderTranscript(items){
   log.innerHTML=""; cur=null; curText=""; pending=""; acc=0; evq=evq.filter(e=>e.kind!=="token"); clearThink(); stick=true;
   if(!items.length){ hero(); return; }
@@ -296,6 +372,7 @@ function renderTranscript(items){
     else if(it.t==="bot"){ const r=mk("row bot",`<img class="av" src="${AV}">`); const b=mk("bubble"); b.innerHTML=md(it.text); r.appendChild(b); log.appendChild(r); }
     else if(it.t==="step") log.appendChild(stepEl(it.name,it.args,it.result,it.error));
     else if(it.t==="picture") log.appendChild(pictureRow(it.rel,it.name));
+    else if(it.t==="file") log.appendChild(fileRow(it));
     else if(it.t==="meta") log.appendChild(mk("meta",esc(it.text)));
   });
   stick=true; chat.scrollTop=chat.scrollHeight;
@@ -351,8 +428,46 @@ function setBusy(b){
   if(!b) clearThink();
 }
 
+/* ------------------------------------------------------------------ her mood (profile picture expressions) */
+const MOOD_TXT={neutral:"relaxed",happy:"happy",excited:"excited!",thinking:"thinking…",working:"working on it",asking:"needs your OK",worried:"uh-oh…",sad:"feeling down",sleepy:"sleepy zzz"};
+let mood="neutral", moodTO=0, sleepTO=0, turnErr=0, praised=false, scolded=false;
+function setMood(m,hold,back){
+  clearTimeout(moodTO);
+  if(m!==mood){
+    mood=m; AV="/avatar.png?t="+TOKEN+"&mood="+m+"&size=small";
+    const im=document.querySelector("#side .brand img");
+    if(im){ const pre=new Image(); pre.onload=()=>{ im.style.opacity=.15; setTimeout(()=>{im.src=pre.src; im.style.opacity=1},120) }; pre.src=AV; }
+    $("moodtxt").textContent=MOOD_TXT[m]||"";
+  }
+  if(hold) moodTO=setTimeout(()=>setMood(back||"neutral"),hold);
+}
+function wake(){ clearTimeout(sleepTO); if(mood==="sleepy") setMood("neutral"); sleepTO=setTimeout(()=>{ if(!busy) setMood("sleepy") },150000); }
+function reactTo(e){
+  switch(e.kind){
+    case "ready": setMood("happy",4000); break;
+    case "user":
+      praised=/\b(thanks?|thank you|thx|great|awesome|perfect|love (it|you)|good (job|girl)|well done|amazing|nice|brilliant|cute)\b/i.test(e.text||"");
+      scolded=/\b(wrong|bad|stupid|useless|terrible|awful|hate|not what i|that'?s not|doesn'?t work|failed)\b/i.test(e.text||""); break;
+    case "busy": turnErr=0; setMood("thinking"); break;
+    case "thinking": setMood("thinking"); break;
+    case "tool_call": setMood("working"); break;
+    case "tool_result": if(e.error){ turnErr++; setMood("worried",3500,"working"); } break;
+    case "token": if(mood==="thinking"||mood==="working") setMood("neutral"); break;
+    case "approval": setMood("asking"); break;
+    case "approval_done": setMood(e.answer==="n"?"sad":"happy",3000,"working"); break;
+    case "file": setMood("happy",4000,busy?"working":"neutral"); break;
+    case "done":
+      if(e.stopped) setMood("sad",6000); else if(scolded||turnErr>2) setMood("worried",6000);
+      else if(praised||e.secs>90) setMood("excited",7000); else setMood("happy",5000);
+      if(cur){ const avs=log.querySelectorAll(".row.bot img.av"); if(avs.length) avs[avs.length-1].src=AV; }   // the reply she is typing wears this face
+      break;
+    case "error": setMood("sad",8000); break;
+  }
+}
+
 /* ------------------------------------------------------------------ events from her */
 function handle(e){
+  reactTo(e); wake();
   switch(e.kind){
     case "status": showBanner(e.text); break;
     case "ready":
@@ -370,6 +485,7 @@ function handle(e){
       if(d){ if(e.error) d.classList.add("err"); d.querySelector("pre").textContent+="\n\n"+e.result; }
       break; }
     case "picture": add(pictureRow(e.rel,e.name)); break;
+    case "file": add(fileRow(e)); break;
     case "info": add(mk("note", ({skill:"📖 using her skill: ",steer:"↪ she read your message: ",check:"✓ double-checking the answer",
       nudge:"↻ nudging her to finish",condense:"⇣ memory is full, condensing",image:"👀 looking at an image"}[e.what]||"")+esc(e.text||""))); break;
     case "approval": {

@@ -190,3 +190,67 @@ def test_weather_parses_open_meteo(env, monkeypatch):
     monkeypatch.setattr(httpx, "get", fake_get)
     r = call(reg, policy, "weather", city="Kathmandu")
     assert "Kathmandu, Nepal" in r and "partly cloudy" in r and "light rain" in r
+
+
+def test_share_file_inside_and_outside_workspace(env, tmp_path):
+    cfg, policy, reg, answers = env
+    call(reg, policy, "write_file", path="docs/a.txt", content="hi")
+    r = call(reg, policy, "share_file", path="docs/a.txt", caption="my [note]")
+    assert "[[shared:docs/a.txt|my note]]" in r and "doc" in r        # brackets stripped from captions
+    outside = tmp_path / "elsewhere" / "pic.png"
+    outside.parent.mkdir()
+    outside.write_bytes(b"\x89PNG")
+    assert call(reg, policy, "share_file", path=str(outside)).startswith("DENIED")   # outside: asks first
+    answers.append("y")
+    r = call(reg, policy, "share_file", path=str(outside))
+    assert "[[shared:shared/pic.png|]]" in r and (policy.workspace / "shared" / "pic.png").is_file()
+    answers.append("y")
+    assert "[[shared:shared/pic-1.png|]]" in call(reg, policy, "share_file", path=str(outside))  # never overwrites
+    secret = tmp_path / ".env"
+    secret.write_text("KEY=1")
+    answers.append("y")
+    assert call(reg, policy, "share_file", path=str(secret)).startswith("DENIED")    # credentials are never shared
+
+
+def test_image_edit_operations(env):
+    from PIL import Image
+    cfg, policy, reg, answers = env
+    ws = policy.workspace
+    ws.mkdir(parents=True, exist_ok=True)
+    img = Image.new("RGB", (40, 20), (200, 50, 50))
+    img.putpixel((0, 0), (0, 0, 255))
+    img.save(ws / "in.png")
+    r = call(reg, policy, "image_edit", path="in.png", output="out.png", flip="horizontal", width=20)
+    assert "Saved" in r and "20x10" in r
+    with Image.open(ws / "out.png") as o:
+        assert o.size == (20, 10) and o.getpixel((19, 0))[2] > o.getpixel((0, 0))[2]   # the blue corner moved right
+    assert "Saved" in call(reg, policy, "image_edit", path="in.png", output="g.png", sepia=True, brightness=1.2,
+                           contrast=1.1, saturation=0.8, sharpness=1.5, blur=1, auto_contrast=True)
+    assert "Saved" in call(reg, policy, "image_edit", path="in.png", output="x.jpg", invert=True, rotate=90)
+    with Image.open(ws / "x.jpg") as o:
+        assert o.size == (20, 40)
+    assert call(reg, policy, "image_edit", path="in.png", output="in.png").startswith("DENIED")  # keeps the original
+    assert (ws / "in.png").stat().st_size > 0
+
+
+def test_find_my_files_filters_sorts_and_shares(env, tmp_path):
+    import os
+    cfg, policy, reg, answers = env
+    ws = policy.workspace
+    for rel, age_days in (("comfy/cat.png", 0), ("comfy/old-dog.png", 10), ("videos/clip.mp4", 1),
+                          ("uploads/mine.png", 0), ("reports/r.pdf", 2), (".scratch/tmp.png", 0)):
+        f = ws / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b"x")
+        t = f.stat().st_mtime - age_days * 86400
+        os.utime(f, (t, t))
+    r = call(reg, policy, "find_my_files", kind="image")
+    assert "cat.png" in r and "old-dog.png" in r
+    assert "mine.png" not in r and "tmp.png" not in r and "clip.mp4" not in r      # uploads/scratch/other kinds out
+    assert r.index("cat.png") < r.index("old-dog.png")                              # newest first
+    assert "old-dog" not in call(reg, policy, "find_my_files", kind="image", days=3)
+    assert "mine.png" in call(reg, policy, "find_my_files", kind="image", where="uploads")
+    assert "clip.mp4" in call(reg, policy, "find_my_files", query="clip")
+    assert call(reg, policy, "find_my_files", kind="pdf", query="nothing") == "No matching files."
+    shared = call(reg, policy, "find_my_files", kind="image", share=True)
+    assert "[[shared:comfy/cat.png|]]" in shared and "[[shared:comfy/old-dog.png|]]" in shared

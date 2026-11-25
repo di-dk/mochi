@@ -13,7 +13,8 @@ import sys
 IS_WINDOWS = sys.platform == "win32"
 OS_NAME = "Windows PC" if IS_WINDOWS else "Linux PC"
 
-# Tools that only work on Windows (UI Automation, Win32 window control, Task Scheduler, Start-menu apps).
+# The Windows implementations of these tools (UI Automation, Win32 windows, Task Scheduler, Start-menu apps).
+# On Linux they are replaced by agent/tools_linux.py, which registers only what works on this machine.
 WINDOWS_ONLY_TOOLS = {
     "list_windows", "screenshot", "focus_window", "mouse_click", "type_text", "hotkey",
     "list_apps", "launch_app",
@@ -23,7 +24,7 @@ WINDOWS_ONLY_TOOLS = {
 
 
 def drop_unsupported_tools(reg) -> None:
-    """Remove tools that cannot work on this OS so the model is never offered them."""
+    """Remove the Windows-only implementations so the model is never offered something that cannot run."""
     if IS_WINDOWS:
         return
     for name in WINDOWS_ONLY_TOOLS:

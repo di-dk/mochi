@@ -146,32 +146,139 @@ def add_auto_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
 
     # ------------------------------------------------------------------ images
     @reg.add("image_edit",
-             "Edit an image: resize (width/height, keeps aspect if one is 0), crop [l,t,r,b], rotate degrees, "
-             "grayscale, convert format via output extension (png/jpg/webp/ico). Saves to output.",
+             "Edit a photo or image and save the result (the original is never changed). Operations are applied in "
+             "this order: auto-orient (phone photos), crop [left,top,right,bottom], rotate degrees (clockwise), flip "
+             "('horizontal'|'vertical'), resize (width/height, keeps aspect if one is 0), then looks: brightness / "
+             "contrast / saturation / sharpness (1.0 = unchanged, 1.3 = 30% more), blur (radius), grayscale, sepia, "
+             "invert, auto_contrast. Output format follows the extension (png/jpg/webp/gif/bmp/ico). "
+             "The edited picture is shown in the chat automatically.",
              {"path": S, "output": S, "width": I, "height": I, "crop": {"type": "array", "items": I},
-              "rotate": N, "grayscale": B, "quality": I}, ["path", "output"])
+              "rotate": N, "flip": S, "brightness": N, "contrast": N, "saturation": N, "sharpness": N, "blur": N,
+              "grayscale": B, "sepia": B, "invert": B, "auto_contrast": B, "quality": I}, ["path", "output"])
     def image_edit(path: str, output: str, width: int = 0, height: int = 0, crop: list | None = None,
-                   rotate: float = 0, grayscale: bool = False, quality: int = 90):
-        from PIL import Image
+                   rotate: float = 0, flip: str = "", brightness: float = 1.0, contrast: float = 1.0,
+                   saturation: float = 1.0, sharpness: float = 1.0, blur: float = 0, grayscale: bool = False,
+                   sepia: bool = False, invert: bool = False, auto_contrast: bool = False, quality: int = 90):
+        from PIL import Image, ImageEnhance, ImageFilter, ImageOps
         src, dst = policy.check_read(path), policy.check_write(output)
+        if src.resolve() == dst.resolve():
+            raise Denied("Output must be a different file than the input; the original is never overwritten.")
         dst.parent.mkdir(parents=True, exist_ok=True)
-        with Image.open(src) as im:
+        with Image.open(src) as im0:
+            im = ImageOps.exif_transpose(im0) or im0
             if crop:
                 im = im.crop(tuple(crop))
             if rotate:
                 im = im.rotate(-rotate, expand=True)
+            if flip.lower().startswith("h"):
+                im = ImageOps.mirror(im)
+            elif flip.lower().startswith("v"):
+                im = ImageOps.flip(im)
             if width or height:
                 w = width or round(im.width * height / im.height)
                 h = height or round(im.height * width / im.width)
                 im = im.resize((w, h), Image.LANCZOS)
+            rgba = im.mode in ("RGBA", "LA", "P")
+            alpha = im.convert("RGBA").getchannel("A") if rgba else None
+            if rgba or im.mode not in ("RGB", "L"):
+                im = im.convert("RGB")
+            if auto_contrast:
+                im = ImageOps.autocontrast(im)
+            for factor, enhancer in ((brightness, ImageEnhance.Brightness), (contrast, ImageEnhance.Contrast),
+                                     (saturation, ImageEnhance.Color), (sharpness, ImageEnhance.Sharpness)):
+                if factor != 1.0 and im.mode == "RGB":
+                    im = enhancer(im).enhance(float(factor))
+            if blur:
+                im = im.filter(ImageFilter.GaussianBlur(float(blur)))
+            if invert and im.mode in ("RGB", "L"):
+                im = ImageOps.invert(im)
+            if sepia:
+                g = ImageOps.grayscale(im)
+                im = ImageOps.colorize(g, black="#2b1a0a", white="#ffe9c4", mid="#a67c52")
             if grayscale:
                 im = im.convert("L")
+            if alpha is not None and dst.suffix.lower() in (".png", ".webp", ".gif", ".ico") and im.mode in ("RGB", "L"):
+                im = im.convert("RGBA")
+                im.putalpha(alpha)
             if dst.suffix.lower() in (".jpg", ".jpeg") and im.mode in ("RGBA", "P", "LA"):
                 im = im.convert("RGB")
             kw = {"quality": quality} if dst.suffix.lower() in (".jpg", ".jpeg", ".webp") else {}
             im.save(dst, **kw)
             size = f"{im.width}x{im.height}"
         return f"Saved {dst} ({size})" + reg.attach_image(dst, dst.name)
+
+    # ------------------------------------------------------------------ sharing files in the chat
+    @reg.add("share_file",
+             "Show or send a file to the user in the chat. Images and videos appear as a small thumbnail the user can "
+             "click to see big; audio plays in the chat; PDFs, documents, archives and any other file get a "
+             "download card. Use it when the user asks to see, share, send or give them a file (also after you "
+             "make or edit one). A file outside the workspace is copied into workspace/shared first.",
+             {"path": S, "caption": S}, ["path"])
+    def share_file(path: str, caption: str = ""):
+        from . import media
+        src = policy.check_read(path)                      # secrets are refused; outside the workspace it asks
+        if not src.is_file():
+            raise Denied(f"{src} is not a file.")
+        dst = src
+        if not policy.in_workspace(src):
+            dst = policy.check_write(ws / "shared" / src.name)
+            n = 1
+            while dst.exists():
+                dst = ws / "shared" / f"{src.stem}-{n}{src.suffix}"
+                n += 1
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+        rel = dst.resolve().relative_to(ws.resolve()).as_posix()
+        cap = re.sub(r"[\]|\[]", "", caption)[:200]
+        return (f"Shared {rel} ({media.kind_of(dst)}, {dst.stat().st_size} bytes) in the chat."
+                f"\n[[shared:{rel}|{cap}]]")
+
+    @reg.add("find_my_files",
+             "Find files by what they are, a name word and how recent they are, newest first. Use it for 'show me "
+             "the image you made', 'find my last video', 'where is that PDF'. kind: image|video|audio|pdf|doc|"
+             "archive|any. where: 'mine' (default: her workspace except the user's uploads), 'uploads' (files the "
+             "user gave her), 'all' (whole workspace) or a folder path. days: only files changed in the last N "
+             "days (0 = any). share=true also shows up to 6 of the results in the chat (thumbnail + path).",
+             {"kind": S, "query": S, "where": S, "days": N, "limit": I, "share": B})
+    def find_my_files(kind: str = "any", query: str = "", where: str = "mine", days: float = 0, limit: int = 10,
+                      share: bool = False):
+        from . import media
+        kind, limit = (kind or "any").lower(), max(1, min(int(limit or 10), 30))
+        if where in ("mine", "uploads", "all", ""):
+            base = ws
+        else:
+            base = policy.check_read(where)
+        skip = {".scratch", ".browser-profile", ".cosmic-shot", "__pycache__", ".git", "node_modules", ".venv"}
+        cutoff = time.time() - days * 86400 if days else 0
+        rows = []
+        for f in base.rglob("*"):
+            try:
+                if not f.is_file() or any(part in skip for part in f.relative_to(base).parts) or policy.is_denied(f):
+                    continue
+                rel_parts = f.relative_to(ws).parts if policy.in_workspace(f) else ()
+                if base == ws and where in ("mine", "") and rel_parts[:1] == ("uploads",):
+                    continue
+                if where == "uploads" and rel_parts[:1] != ("uploads",):
+                    continue
+                if kind not in ("any", "") and media.kind_of(f) != kind:
+                    continue
+                if query and query.lower() not in f.name.lower():
+                    continue
+                st = f.stat()
+                if cutoff and st.st_mtime < cutoff:
+                    continue
+                rows.append((st.st_mtime, f, st.st_size))
+            except (OSError, ValueError):
+                continue
+        rows.sort(key=lambda r: r[0], reverse=True)
+        if not rows:
+            return "No matching files."
+        lines = [f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(m))}  {media.kind_of(f):<7} {s:>10} B  {f}"
+                 for m, f, s in rows[:limit]]
+        out = f"{len(rows)} match(es), newest first:\n" + "\n".join(lines)
+        if share:
+            out += "\n" + "\n".join(reg.tools["share_file"].fn(path=str(f)) for _, f, _ in rows[:min(limit, 6)])
+        return out
 
     # ------------------------------------------------------------------ media (ffmpeg)
     @reg.add("media_convert",

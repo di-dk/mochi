@@ -52,6 +52,18 @@ class FakeAgent:
             (self.policy.workspace / "secret.png").write_bytes(b"x")
             self.app.on_event("tool_result", {"name": "comfy_txt2img", "result": "saved out.png and secret.png"})
             return "done pic"
+        if text == "share":
+            ws = self.policy.workspace
+            (ws / "a.png").write_bytes(b"\x89PNG fake")
+            (ws / "clip.mp4").write_bytes(bytes(range(256)) * 4)
+            (ws / "notes.docx").write_bytes(b"PK fake docx")
+            (ws / "page.html").write_text("<script>alert(1)</script>", encoding="utf-8")
+            (ws / "logo.svg").write_text("<svg onload='alert(1)'/>", encoding="utf-8")
+            (ws / "secret.png").write_bytes(b"x")
+            self.app.on_event("tool_result", {"name": "share_file", "result":
+                "Shared a.png\n[[shared:a.png|a cat]]\n[[shared:clip.mp4|]]\n[[shared:notes.docx|]]\n"
+                "[[shared:page.html|]]\n[[shared:logo.svg|]]\n[[shared:secret.png|]]\n[[shared:../outside.txt|]]"})
+            return "shared"
         self.app.on_event("tool_call", {"name": "wait", "args": '{"seconds": 1}'})
         self.app.on_event("token", {"text": "hello "})
         self.app.on_event("token", {"text": text})
@@ -62,8 +74,9 @@ class FakeAgent:
 
 
 @pytest.fixture
-def gui(tmp_path):
+def gui(tmp_path, monkeypatch):
     cfg = copy.deepcopy(load_config())
+    monkeypatch.setattr("agent.core.ROOT", tmp_path)       # settings the tests save must not touch the real config
     ws = tmp_path / "ws"
     ws.mkdir()
     app = GuiApp(cfg, make_agent=lambda a: FakeAgent(a, ws))
@@ -146,12 +159,12 @@ def test_pictures_are_served_only_from_workspace_and_not_secret(gui):
     app, base, h = gui
     httpx.post(f"{base}/send", headers=h, json={"text": "pic"})
     evs = poll(base, h, until="idle")
-    pics = [e["rel"] for e in evs if e["kind"] == "picture"]
-    assert "out.png" in pics
+    pics = [e["rel"] for e in evs if e["kind"] == "file"]
+    assert pics == ["out.png"]
     assert httpx.get(f"{base}/file?p=out.png", headers=h).status_code == 200
     assert httpx.get(f"{base}/file?p=secret.png", headers=h).status_code == 404
     assert httpx.get(f"{base}/file?p=../ws.txt", headers=h).status_code == 403
-    assert httpx.get(f"{base}/file?p=out.txt", headers=h).status_code == 403
+    assert httpx.get(f"{base}/file?p=missing.txt", headers=h).status_code == 404
 
 
 def test_reset_command_and_busy_guard(gui):
@@ -175,7 +188,8 @@ def test_upload_then_send_with_files(gui):
     assert st["status"] == "started"                                        # a file alone is a valid message
     evs = poll(base, h, until="done")
     user = [e for e in evs if e["kind"] == "user"][0]
-    assert user["files"] == [{"name": "my photo.png", "rel": "uploads/my photo.png", "image": True}]
+    assert user["files"] == [{"name": "my photo.png", "rel": "uploads/my photo.png", "image": True,
+                             "type": "image", "size": 13}]
     assert [e for e in evs if e["kind"] == "done"][0]["answer"] == "saw my photo.png"
 
 
@@ -254,3 +268,60 @@ def test_theme_is_validated_saved_and_applied_before_first_paint(gui, monkeypatc
     assert saved == [("ui", "theme", "midnight")]                                               # junk is never stored
     assert httpx.get(f"{base}/state", headers=h).json()["theme"] == "midnight"
     assert '<html lang="en" data-theme="midnight">' in httpx.get(f"{base}/?t={app.token}").text
+
+
+def _shared(gui):
+    app, base, h = gui
+    httpx.post(f"{base}/send", headers=h, json={"text": "share"})
+    evs = poll(base, h, until="idle")
+    return base, h, {e["rel"]: e for e in evs if e["kind"] == "file"}
+
+
+def test_shared_files_show_in_chat_with_the_right_kind(gui):
+    base, h, files = _shared(gui)
+    assert files["a.png"]["type"] == "image" and files["a.png"]["caption"] == "a cat"
+    assert files["clip.mp4"]["type"] == "video" and files["clip.mp4"]["size"] == 1024
+    assert files["notes.docx"]["type"] == "doc" and files["page.html"]["type"] == "doc"
+    assert "secret.png" not in files                      # credential-looking names are never shown
+    assert not any(r.startswith("..") for r in files)     # nothing outside the workspace
+
+
+def test_only_media_is_inline_everything_else_downloads(gui):
+    base, h, _ = _shared(gui)
+    png = httpx.get(f"{base}/file?p=a.png", headers=h)
+    assert png.headers["content-type"] == "image/png" and "content-disposition" not in png.headers
+    assert png.headers["content-security-policy"] == "sandbox"
+    for name in ("page.html", "logo.svg", "notes.docx"):      # could run as a page: forced to download
+        r = httpx.get(f"{base}/file?p={name}", headers=h)
+        assert r.headers["content-type"] == "application/octet-stream", name
+        assert r.headers["content-disposition"].startswith("attachment"), name
+    forced = httpx.get(f"{base}/file?p=a.png&dl=1", headers=h)
+    assert forced.headers["content-disposition"].startswith("attachment")
+
+
+def test_video_supports_range_requests_for_seeking(gui):
+    base, h, _ = _shared(gui)
+    whole = httpx.get(f"{base}/file?p=clip.mp4", headers=h)
+    assert whole.status_code == 200 and whole.headers["content-type"] == "video/mp4"
+    assert whole.headers["accept-ranges"] == "bytes" and len(whole.content) == 1024
+    part = httpx.get(f"{base}/file?p=clip.mp4", headers={**h, "Range": "bytes=2-5"})
+    assert part.status_code == 206 and part.content == bytes([2, 3, 4, 5])
+    assert part.headers["content-range"] == "bytes 2-5/1024"
+    tail = httpx.get(f"{base}/file?p=clip.mp4", headers={**h, "Range": "bytes=-3"})
+    assert tail.status_code == 206 and tail.content == bytes([253, 254, 255])
+    assert httpx.get(f"{base}/file?p=clip.mp4", headers={**h, "Range": "bytes=5000-"}).status_code == 416
+
+
+def test_avatar_serves_each_mood_and_never_a_path(gui):
+    from agent.gui import MOODS
+    app, base, h = gui
+    for mood in MOODS:
+        for size in ("small", "big"):
+            r = httpx.get(f"{base}/avatar.png?mood={mood}&size={size}", headers=h)
+            assert r.status_code == 200 and r.headers["content-type"] in ("image/webp", "image/png") and r.content, (mood, size)
+    small = httpx.get(f"{base}/avatar.png?mood=happy&size=small", headers=h).content
+    big = httpx.get(f"{base}/avatar.png?mood=happy&size=big", headers=h).content
+    assert len(big) > len(small)
+    odd = httpx.get(f"{base}/avatar.png?mood=../../config&size=big", headers=h)      # unknown mood -> plain neutral
+    assert odd.status_code == 200 and odd.content == httpx.get(f"{base}/avatar.png?mood=neutral&size=big", headers=h).content
+    assert httpx.get(f"{base}/avatar.png?mood=happy").status_code == 403           # still needs the token
