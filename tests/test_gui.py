@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from agent.core import STOPPED, load_config
+from agent.core import ROOT, STOPPED, load_config
 from agent.gui import GuiApp, serve
 
 
@@ -75,7 +75,7 @@ class FakeAgent:
 
 @pytest.fixture
 def gui(tmp_path, monkeypatch):
-    cfg = copy.deepcopy(load_config())
+    cfg = copy.deepcopy(load_config(ROOT / "config.yaml"))     # shared defaults only, never the user's personal config.local.yaml
     monkeypatch.setattr("agent.core.ROOT", tmp_path)       # settings the tests save must not touch the real config
     ws = tmp_path / "ws"
     ws.mkdir()
