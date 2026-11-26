@@ -18,7 +18,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import attach, media
+import html as html_lib
+
+from . import attach, media, version
 from .history import ChatStore, clean_messages, new_id, title_from
 from .core import ROOT, STOPPED, Agent, ensure_llm, list_models, make_policy, save_local_setting
 
@@ -103,7 +105,7 @@ class GuiApp:
 
     def info(self) -> dict:
         return {"name": self.cfg["agent"]["name"], "model": self.cfg["llm"]["model"], "ready": self.agent is not None,
-                "busy": self.busy, "error": self.error}
+                "busy": self.busy, "error": self.error, "version": version.short(), "version_detail": version.detail()}
 
     # ------------------------------------------------------------------ agent -> page
     def on_event(self, kind: str, data: dict) -> None:
@@ -448,6 +450,8 @@ def make_handler(app: GuiApp, host_header: str):
             if u.path == "/":
                 theme = app.theme()
                 html = (page.replace("__TOKEN__", app.token).replace("__VIDEOS__", json.dumps(app.avatar_videos())).replace("__NAME__", app.cfg["agent"]["name"])
+                        .replace("__VERSIONDETAIL__", html_lib.escape(version.detail(), quote=True))
+                        .replace("__VERSION__", version.short())
                         .replace("__THEMEATTR__", "" if theme == "auto" else f'data-theme="{theme}"'))
                 self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
             elif u.path == "/avatar.webm":

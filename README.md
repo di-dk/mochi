@@ -188,6 +188,31 @@ ones, while `gemma3:12b` as the translator (`llm.translator_model: gemma3:12b`, 
 better on 4 of 5 new sentences and 2 to 4 times faster; it still makes mistakes (it misread "happy to meet you" and once put a
 stray Latin letter in a word, which she now catches and retries). For anything official, have a native speaker check it.
 
+## ComfyUI, made reliable
+
+She knows what her ComfyUI can really do and has one call for each job, so a small model cannot mis-assemble a workflow:
+
+- **`comfy_capabilities`**: every installed model grouped by purpose, which tool covers it, which still needs a workflow (video
+  models are not checkpoints), and the GPU. "READY" is only printed when the template really validates.
+- **`comfy_video`**: "make a dancing cat video" is one call (Wan 2.2 text-to-video; with `image=` it animates a picture). 1 to 5
+  seconds, square, landscape or portrait, about 30 to 90 seconds. It shows the video in the chat.
+- **`comfy_check`**: tests every workflow template against the installed nodes and model files before running anything.
+- **`comfy_start`**: starts ComfyUI (local only, after asking you) when it is not running.
+- **GPU memory**: Ollama keeps her language model on the GPU, which starves ComfyUI. It is unloaded before a job and loads again by
+  itself (`comfyui.free_llm_before`). If a video still runs out of memory it is retried once, smaller.
+- **Errors say what to do**: out of memory, a wrong model name, a missing node, a wrong template key and a missing input picture each
+  get advice instead of a stack trace. The skill `comfyui-expert` is her playbook.
+
+Not everything installed has a ready workflow yet: music (ACE-Step), Qwen-Image text-to-image, LTX video with sound and sound
+effects show up as "needs a workflow", and she builds those with `comfy-new-workflow`. No one can promise "never fails", so there is
+an opt-in test against your real ComfyUI: `MOCHI_LIVE_COMFY=1 pytest tests/test_comfy_expert.py`.
+
+## Which version is running
+
+The chat window shows it under her name (hover for details), the terminal banner shows it, and `mochi --version` prints it. A
+development checkout says so, e.g. `v0.13.0 (development: 3 newer commits, abc1234, local changes)`. The number lives in
+`agent/version.py` and matches the release tag.
+
 ## Her moods
 
 Her profile picture is a close-up that changes with how she feels: relaxed, happy, excited (a long task, or you

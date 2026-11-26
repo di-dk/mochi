@@ -42,6 +42,7 @@ def window_at(x: int, y: int) -> str:
 S = {"type": "string"}
 I = {"type": "integer"}
 B = {"type": "boolean"}
+N = {"type": "number"}
 
 
 def build_tools(policy: Policy, cfg: dict) -> Registry:
@@ -419,8 +420,8 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
     # ------------------------------------------------------------------ ComfyUI
     curl = cfg["comfyui"]["url"].rstrip("/")
     COMFY_DOWN = (f"ComfyUI is not running (nothing at {curl}). Don't try to work around it by drawing images some "
-                  "other way. Either launch_app('ComfyUI'), wait ~60 seconds and check comfy_status, or tell the "
-                  "user to start ComfyUI Desktop.")
+                  "other way. Call comfy_start (it asks the user first), then retry; if that fails, tell the user to start "
+                  "ComfyUI.")
 
     @reg.add("comfy_status", "Check whether ComfyUI is running and show GPU/queue info.", {})
     def comfy_status():
@@ -456,13 +457,55 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         return "\n".join(m + ("   (audio/other, not for images)" if kind == "checkpoints" and NOT_IMAGE_MODEL.search(m)
                                else "") for m in comfy_models(kind))
 
+    def free_llm_vram() -> str:
+        """Ollama keeps the language model in GPU memory; ComfyUI needs that memory for pictures and video. Unload the
+        models now (they load again by themselves on the next message). LM Studio is handled elsewhere."""
+        if not cfg["comfyui"].get("free_llm_before", True):
+            return ""
+        m = re.match(r"(https?://[^/]+)", cfg["llm"].get("base_url", ""))
+        if not m:
+            return ""
+        try:
+            names = [x.get("name") for x in httpx.get(f"{m.group(1)}/api/ps", timeout=3).json().get("models", []) if x.get("name")]
+            for n in names:
+                httpx.post(f"{m.group(1)}/api/generate", json={"model": n, "keep_alive": 0}, timeout=20)
+        except Exception:  # noqa: BLE001  (not Ollama, or not reachable: nothing to free)
+            return ""
+        if names:
+            policy.audit("llm_unloaded_for_comfy", models=names)
+        return ", ".join(names)
+
+    def explain_comfy(text: str, node_type: str = "") -> str:
+        """Turn a ComfyUI error into what to do about it."""
+        low = text.lower()
+        where = f" (in node {node_type})" if node_type else ""
+        if any(k in low for k in ("out of memory", "vram", "cuda error", "allocate")):
+            return (f"ComfyUI ran out of GPU memory{where}. Other programs hold it (the language model is unloaded "
+                    "automatically; close other GPU apps if it keeps happening). Retry with a smaller size, fewer "
+                    "frames or fewer seconds. Do not retry the same settings more than once.")
+        if "value not in list" in low:
+            return (f"A model or option name is wrong{where}: {text[:400]}. List the valid names with "
+                    "comfy_list_models kind=all and use one of those exactly.")
+        if "does not exist" in low and "node" in low or "missing_node_type" in low or "unknown node" in low:
+            return f"ComfyUI does not have a node this workflow needs: {text[:300]}. Search the installed ones with comfy_node_info."
+        return f"ComfyUI error{where}: {text[:500]}"
+
     def queue_and_wait(workflow: dict, out_prefix: str, timeout_s: int = 900) -> list[str]:
+        free_llm_vram()
         try:
             r = httpx.post(f"{curl}/prompt", json={"prompt": workflow, "client_id": "local-agent"}, timeout=30)
         except httpx.ConnectError:
             raise RuntimeError(COMFY_DOWN) from None
         if r.status_code != 200:
-            raise RuntimeError(f"ComfyUI rejected workflow: {r.text[:1500]}")
+            try:
+                err = r.json().get("error", {})
+                detail = err.get("message", "") + " " + "; ".join(
+                    f"{n.get('class_type', '')}: " + ", ".join(e.get("message", "") + " " + e.get("details", "")
+                                                              for e in (n.get("errors") or []))
+                    for n in (r.json().get("node_errors") or {}).values())
+            except ValueError:
+                detail = r.text
+            raise RuntimeError("ComfyUI rejected the workflow. " + explain_comfy(detail.strip() or r.text[:600]))
         pid = r.json()["prompt_id"]
         t0 = time.time()
         while time.time() - t0 < timeout_s:
@@ -470,7 +513,9 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
             if pid in h:
                 entry = h[pid]
                 if entry.get("status", {}).get("status_str") == "error":
-                    raise RuntimeError(f"ComfyUI error: {json.dumps(entry['status'])[:1500]}")
+                    ev = next((m[1] for m in entry["status"].get("messages", []) if m[0] == "execution_error"), {})
+                    raise RuntimeError(explain_comfy(str(ev.get("exception_message") or entry["status"])[:600],
+                                                     str(ev.get("node_type") or "")))
                 saved = []
                 dest = ws / "comfy"
                 dest.mkdir(exist_ok=True)
@@ -589,7 +634,7 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         wf = json.loads(f.read_text(encoding="utf-8"))
         if "nodes" in wf and "links" in wf:
             return "ERROR: that is a UI-format workflow. Export it with 'Export (API)' in ComfyUI."
-        wf.pop("_mochi", None)
+        help_text = (wf.pop("_mochi", None) or {}).get("help", "")
         overrides = dict(set or {})
         for key, rel in (images or {}).items():
             src = policy.check_read(rel)
@@ -604,12 +649,211 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         for key, val in overrides.items():
             node, _, field = key.partition(".")
             if node not in wf or not field or field not in wf[node].get("inputs", {}):
-                return (f"ERROR: this workflow has no input {key!r}. Inputs you can set: "
-                        + ", ".join(f"{n}.{k}" for n, d in wf.items() for k, v in d.get("inputs", {}).items()
-                                    if not isinstance(v, list))[:900])
+                return (f"ERROR: this workflow has no input {key!r}. "
+                        + (f"How to use this template: {help_text} " if help_text else "Inputs you can set: "
+                           + ", ".join(f"{n}.{k}" for n, d in wf.items() for k, v in d.get("inputs", {}).items()
+                                       if not isinstance(v, list))[:900])
+                        + " (For a plain 'make a video' request use comfy_video instead.)")
             wf[node]["inputs"][field] = val
+        needs = [f"{n}.image" for n, d in wf.items() if d.get("class_type") == "LoadImage"
+                 and d["inputs"].get("image") == "input.png"]
+        if template and needs:
+            return (f"ERROR: this template needs an input picture: images={{\"{needs[0]}\": \"path/to/picture.png\"}}. "
+                    + (help_text if help_text else "") + " To make a video from text alone use comfy_video or "
+                    "template wan-text-to-video.")
         files = queue_and_wait(wf, name)
         return "Outputs:\n" + "\n".join(files)
+
+    node_cache: dict = {"t": 0.0, "info": {}}
+
+    def node_info(fresh: bool = False) -> dict:
+        """ComfyUI's node list (several MB). Cached for 10 seconds; an explicit check always asks again."""
+        if fresh or time.time() - node_cache["t"] > 10:
+            node_cache.update(t=time.time(), info=httpx.get(f"{curl}/object_info", timeout=90).json())
+        return node_cache["info"]
+
+    def combo_options(entry) -> list | None:
+        """The allowed values of a combo input, in either ComfyUI format; None when it is not a combo."""
+        if not entry:
+            return None
+        if isinstance(entry[0], list):
+            return entry[0]
+        if entry[0] == "COMBO" and len(entry) > 1 and isinstance(entry[1], dict):
+            return entry[1].get("options", [])
+        return None
+
+    def check_workflow(wf: dict, fresh: bool = False) -> list[str]:
+        """Everything that would make ComfyUI refuse this workflow, found BEFORE running it: node types that do not
+        exist, model files that are not installed, required inputs that are missing."""
+        info, problems = node_info(fresh), []
+        for nid, node in wf.items():
+            if nid.startswith("_"):
+                continue
+            ct, spec = node.get("class_type"), info.get(node.get("class_type"))
+            if not spec:
+                problems.append(f"node {nid}: ComfyUI has no node type {ct!r}")
+                continue
+            ins = {**spec["input"].get("required", {}), **spec["input"].get("optional", {})}
+            for k in spec["input"].get("required", {}):
+                if k not in node.get("inputs", {}):
+                    problems.append(f"node {nid} ({ct}) is missing the input {k!r}")
+            for k, v in node.get("inputs", {}).items():
+                opts = combo_options(ins.get(k))
+                if isinstance(v, list) or opts is None or ct == "LoadImage" or v in opts:
+                    continue
+                problems.append(f"node {nid} ({ct}) input {k} = {v!r} is not installed or not allowed "
+                                f"(valid: {', '.join(map(str, opts[:6]))}{'...' if len(opts) > 6 else ''})")
+        return problems
+
+    def template_problems(name: str, fresh: bool = False) -> list[str]:
+        f = WORKFLOWS / f"{name}.json"
+        if not f.is_file():
+            return [f"no template {name!r}"]
+        wf = json.loads(f.read_text(encoding="utf-8"))
+        wf.pop("_mochi", None)
+        return check_workflow(wf, fresh)
+
+    @reg.add("comfy_check",
+             "Test that a workflow template can run on this PC BEFORE running it: checks every node type and every "
+             "model file against what ComfyUI has installed. template: a name from workflows/ (empty = check them all).",
+             {"template": S})
+    def comfy_check(template: str = ""):
+        names = [re.sub(r"[^A-Za-z0-9_-]", "", template)] if template else sorted(x.stem for x in WORKFLOWS.glob("*.json"))
+        try:
+            rows = []
+            for i, n in enumerate(names):
+                p = template_problems(n, fresh=(i == 0))
+                rows.append(f"OK      {n}" if not p else f"BROKEN  {n}:\n    - " + "\n    - ".join(p[:6]))
+        except httpx.ConnectError:
+            raise RuntimeError(COMFY_DOWN) from None
+        return "\n".join(rows) or "No templates."
+
+    @reg.add("comfy_start",
+             "Start ComfyUI when it is not running (asks the user first). It listens only on this PC (127.0.0.1). "
+             "Waits until it answers. Use it when a comfy tool says ComfyUI is not running.", {})
+    def comfy_start():
+        try:
+            httpx.get(f"{curl}/system_stats", timeout=3)
+            return "ComfyUI is already running."
+        except httpx.HTTPError:
+            pass
+        base = Path(cfg["comfyui"].get("path") or os.environ.get("COMFYUI_PATH") or Path.home() / "ComfyUI").expanduser()
+        py = next((base / d / ("Scripts/python.exe" if os.name == "nt" else "bin/python") for d in (".venv", "venv")
+                   if (base / d / ("Scripts/python.exe" if os.name == "nt" else "bin/python")).is_file()), None)
+        if not (base / "main.py").is_file() or py is None:
+            return (f"ERROR: I cannot find ComfyUI (looked in {base}). Ask the user to start it, or set comfyui.path in "
+                    "config.local.yaml.")
+        port = int(re.search(r":(\d+)", curl).group(1)) if re.search(r":(\d+)", curl) else 8188
+        policy.require("launch", f"Start ComfyUI from {base} as a local server on 127.0.0.1:{port}")
+        logf = ROOT / "logs"
+        logf.mkdir(exist_ok=True)
+        with (logf / "comfyui.log").open("ab") as out:
+            subprocess.Popen([str(py), "main.py", "--listen", "127.0.0.1", "--port", str(port)], cwd=base, stdout=out,
+                             stderr=subprocess.STDOUT, start_new_session=True)
+        for _ in range(90):
+            time.sleep(2)
+            try:
+                httpx.get(f"{curl}/system_stats", timeout=3)
+                return "ComfyUI is running now. Try your request again."
+            except httpx.HTTPError:
+                continue
+        return "ComfyUI was started but is not answering yet (loading takes a while). Wait a minute and call comfy_status; see logs/comfyui.log."
+
+    SIZES = {"square": (480, 480), "landscape": (640, 368), "portrait": (368, 640)}
+
+    @reg.add("comfy_video",
+             "Make a short video with ComfyUI (Wan 2.2). Use this for ANY 'make a video / animation / clip' request. "
+             "prompt: ONE vivid sentence: subject + action + place + light or camera, e.g. 'A cute orange cat dancing on its "
+             "hind legs in a cozy living room, smooth motion, warm light.' With image= (a picture in your workspace) it "
+             "animates that picture and the prompt describes only the MOTION. seconds 1-5 (default 2), size "
+             "square|landscape|portrait. Takes 30-90 seconds. The video is saved in comfy/ and shown in the chat.",
+             {"prompt": S, "image": S, "seconds": N, "size": S, "seed": I}, ["prompt"])
+    def comfy_video(prompt: str, image: str = "", seconds: float = 2, size: str = "square", seed: int = -1):
+        w, h = SIZES.get(size.lower(), SIZES["square"])
+        frames = 16 * max(1, min(5, round(float(seconds or 2)))) + 1          # 16 frames per second
+        seed = random.randint(1, 2**31) if seed < 0 else seed
+        run = reg.tools["comfy_run_workflow"].fn
+
+        def attempt(w: int, h: int, frames: int):
+            if image:
+                return run(template="wan-image-to-video", images={"9.image": image},
+                           set={"10.text": prompt, "12.width": w, "12.height": h, "12.length": frames,
+                                "13.noise_seed": seed, "14.noise_seed": seed})
+            return run(template="wan-text-to-video",
+                       set={"10.text": prompt, "9.width": w, "9.height": h, "9.length": frames,
+                            "12.noise_seed": seed, "13.noise_seed": seed})
+        retried = ""
+        try:
+            res = attempt(w, h, frames)
+        except RuntimeError as e:
+            if "out of GPU memory" not in str(e) or (w, h, frames) == (384, 384, 17):
+                raise
+            w, h, frames, retried = 384, 384, 17, " It ran out of GPU memory at the first size, so I retried smaller."
+            res = attempt(w, h, frames)
+        files = re.findall(r"^(/\S+\.(?:webm|mp4))$", str(res), re.M)
+        if not files:
+            return str(res)[:700]
+        return (f"Made a {frames // 16}-second {w}x{h} video ({'from your picture' if image else 'from text'}, seed {seed})."
+                f"{retried}\n"
+                + reg.tools["share_file"].fn(path=files[0], caption=prompt[:100]))
+
+    # what each installed model is good for, and whether a ready tool covers it
+    CAPS = [
+        (r"qwen_image_edit", "Edit a picture by instruction", "READY: draw_myself (yourself) or comfy_run_workflow template=qwen-image-edit", "qwen-image-edit"),
+        (r"qwen_image_[0-9]", "Text to image with Qwen-Image (strong at text inside pictures)", "needs a workflow (comfy-new-workflow)", ""),
+        (r"wan2\.2_t2v", "Text to video (Wan 2.2)", "READY: comfy_video prompt=...", "wan-text-to-video"),
+        (r"wan2\.2_i2v", "Image to video (Wan 2.2)", "READY: comfy_video prompt=... image=...", "wan-image-to-video"),
+        (r"ltx", "Video with sound (LTX 2.5)", "needs a workflow (comfy-new-workflow)", ""),
+        (r"acestep|ace_step", "Music from text (ACE-Step)", "needs a workflow (comfy-new-workflow)", ""),
+        (r"flux|hidream|sd3|chroma|z[-_]image", "Text to image (modern model)", "needs a workflow (comfy-new-workflow)", ""),
+    ]
+
+    @reg.add("comfy_capabilities",
+             "Find out what ComfyUI can really do on this PC: every installed model grouped by purpose, which ones a "
+             "ready tool covers, which still need a workflow, plus the GPU. Call it FIRST when asked what you can make "
+             "or before an unfamiliar request, instead of guessing from model names.", {})
+    def comfy_capabilities():
+        try:
+            def opts(node: str, field: str) -> list[str]:
+                info = httpx.get(f"{curl}/object_info/{node}", timeout=15).json()
+                entry = info.get(node, {}).get("input", {}).get("required", {}).get(field)
+                return [str(o) for o in (combo_options(entry) or [])]
+            ckpts, unets = opts("CheckpointLoaderSimple", "ckpt_name"), opts("UNETLoader", "unet_name")
+            ups = opts("UpscaleModelLoader", "model_name")
+            cnets = opts("ControlNetLoader", "control_net_name")
+            status = comfy_status()
+        except httpx.ConnectError:
+            raise RuntimeError(COMFY_DOWN) from None
+        lines, ready, todo = [status, ""], [], []
+        image_ckpts = [m for m in ckpts if not NOT_IMAGE_MODEL.search(m)]
+        if image_ckpts:
+            ready.append(f"- Text to image, SD/SDXL style ({', '.join(image_ckpts)}): comfy_txt2img")
+        for m in ckpts:
+            if NOT_IMAGE_MODEL.search(m):
+                todo.append(f"- Sound effects ({m}): needs a workflow (comfy-new-workflow)")
+        seen, seen_fresh = set(), False
+        for pat, what, how, tmpl in CAPS:
+            hit = [m for m in unets if re.search(pat, m, re.I)]
+            if hit and what not in seen:
+                seen.add(what)
+                bad = template_problems(tmpl, fresh=not seen_fresh) if tmpl else []
+                seen_fresh = seen_fresh or bool(tmpl)
+                if bad:                                   # READY only means ready when the template really validates
+                    todo.append(f"- {what} ({', '.join(hit)}): BROKEN, template {tmpl} cannot run here: {bad[0]}")
+                else:
+                    (ready if how.startswith("READY") else todo).append(f"- {what} ({', '.join(hit)}): {how}")
+        other = [m for m in unets if not any(re.search(p, m, re.I) for p, _, _, _ in CAPS)]
+        if other:
+            todo.append(f"- Other diffusion models ({', '.join(other)}): unknown purpose; look them up, then comfy-new-workflow")
+        if ups:
+            todo.append(f"- Upscale pictures ({', '.join(ups)}): needs a workflow")
+        if cnets:
+            todo.append(f"- ControlNet ({', '.join(cnets)}): needs a workflow")
+        lines += ["READY (one tool does it):"] + (ready or ["- nothing"]) + ["", "INSTALLED, but you must build a workflow first "
+                  "(skill comfy-new-workflow; comfy_node_info shows the nodes):"] + (todo or ["- nothing"])
+        lines += ["", "Video models are NOT checkpoints. GPU memory is shared with the language model, which is unloaded "
+                  "automatically before a job."]
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------ scheduling
     folder = cfg["scheduler"]["task_folder"]

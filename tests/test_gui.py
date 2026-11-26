@@ -1,5 +1,6 @@
 """Offline tests for the chat window's server: auth, chat flow, approvals, stop, image serving."""
 import copy
+from pathlib import Path
 import json
 import queue
 import threading
@@ -344,3 +345,18 @@ def test_avatar_videos_loop_files_are_served_with_ranges(gui):
         odd = httpx.get(f"{base}/avatar.webm?mood=../../x&size=big", headers=h)       # unknown mood -> neutral, never a path
         assert odd.status_code in (200, 404)
     assert httpx.get(f"{base}/avatar.webm?mood=happy").status_code == 403                # token required
+
+
+def test_the_window_shows_which_version_is_running(gui):
+    from agent import version
+    app, base, h = gui
+    page = httpx.get(f"{base}/?t={app.token}").text
+    assert "__VERSION__" not in page and "__VERSIONDETAIL__" not in page
+    assert f'id="ver" title="{version.detail()}">{version.short()}</small>' in page.replace("&#x27;", "'")
+    info = httpx.get(f"{base}/info", headers=h).json()
+    assert info["version"] == version.short() and info["version_detail"] == version.detail()
+
+
+def test_the_internal_file_marker_is_hidden_from_her_visible_text():
+    html = (Path(__file__).parent.parent / "agent" / "web" / "index.html").read_text(encoding="utf-8")
+    assert r"\[\[shared:" in html.split("function md(src){")[1][:400]

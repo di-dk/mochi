@@ -119,6 +119,8 @@ shell:
 
 comfyui:
   url: http://127.0.0.1:8188
+  path: ""                              # where ComfyUI is installed, for comfy_start (empty = ~/ComfyUI)
+  free_llm_before: true                  # unload Ollama's language model from the GPU before a ComfyUI job (it reloads by itself)
   default_checkpoint: ""                  # empty = first checkpoint ComfyUI reports
 
 video:

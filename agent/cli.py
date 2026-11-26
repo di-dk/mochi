@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import queue
+import re
 import sys
 import threading
 import time
@@ -24,6 +25,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
+from . import version
 from .core import ROOT, Agent, ensure_llm, list_models, load_config, make_policy, save_local_setting
 
 console = Console()
@@ -129,7 +131,7 @@ def interactive_events(kind: str, data: dict) -> None:
     elif kind == "tool_result" and data["name"] in ("save_skill", "save_lesson"):
         console.print(f"  [magenta]📚 {data['result']}[/]")
     elif kind == "tool_result":
-        r = data["result"].strip().replace("\n", " ⏎ ")
+        r = re.sub(r"\[\[shared:[^\]]*\]\]", "", data["result"]).strip().replace("\n", " ⏎ ")   # the marker is internal
         style = "red" if r.startswith(("ERROR", "DENIED")) else "dim"
         console.print(f"  [{style}]{r[:240]}{'…' if len(r) > 240 else ''}[/]")
     elif kind == "nudge":
@@ -158,9 +160,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-f", "--file", action="append", default=[], metavar="PATH",
                     help="attach a file (photo, video, PDF, Word, Excel, text...); repeat for several")
     ap.add_argument("--gui", action="store_true", help="open Mochi in her own chat window")
+    ap.add_argument("--version", action="store_true", help="show which version of Mochi this is")
     ap.add_argument("--bench", nargs="*", metavar="NAME",
                     help="time the installed tool-capable models (optionally only those matching NAME) and exit")
     args = ap.parse_args(argv)
+    if args.version:
+        print(f"Mochi {version.detail()}")
+        return 0
 
     cfg = load_config(Path(args.config) if args.config else None)
     if args.model:
@@ -200,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     agent = Agent(cfg, make_policy(cfg, approver=kb.approve), on_event=interactive_events)
     kb.agent = agent
     console.print(Panel.fit(
-        f"[bold magenta]🍡 {cfg['agent']['name']}[/] · model [cyan]{cfg['llm']['model']}[/] · workspace [green]{agent.policy.workspace}[/]\n"
+        f"[bold magenta]🍡 {cfg['agent']['name']}[/] [dim]{version.short()}[/] · model [cyan]{cfg['llm']['model']}[/] · workspace [green]{agent.policy.workspace}[/]\n"
         f"{len(agent.registry.tools)} tools · commands: /models  /model <n>  /reset  /tools  /allowed  /exit\n"
         f"[dim]Attach files: type @path, or drag a file in (photos, videos, PDF, Word, Excel, text...).[/]\n"
         f"[dim]While she works: type a message + Enter to add to the task, /stop to stop her.[/]",

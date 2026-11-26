@@ -3,7 +3,8 @@ description: Turn a still image into a short video with ComfyUI (blink, smile, h
 
 Use for "animate this picture", "make her blink and smile", "make a looping avatar".
 1. Input image in the workspace, ideally square or portrait, one clear subject. comfy_status first.
-2. comfy_run_workflow template=wan-image-to-video,
+2. Easiest: comfy_video(prompt=<motion>, image=path) does everything below for you (size, frames, seeds, retry on
+   low GPU memory). By hand: comfy_run_workflow template=wan-image-to-video,
    images={"9.image": "comfy/pic.png"},
    set={"10.text": "<motion>", "12.width": 480, "12.height": 480, "12.length": 33, "13.noise_seed": 5, "14.noise_seed": 5}.
    33 frames = 2 seconds at 16 fps and takes about 30 seconds. Longer (49-81 frames) or bigger (640+) is slower
