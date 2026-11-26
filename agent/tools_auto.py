@@ -226,9 +226,10 @@ def add_auto_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
 
     # ------------------------------------------------------------------ pictures of herself
     @reg.add("draw_myself",
-             "Draw or edit a picture of YOURSELF (Mochi) so that it really looks like you. ALWAYS use this when asked "
-             "to draw, show, imagine or change yourself; never comfy_txt2img (it does not know your face). scene: what "
-             "should change or happen: the outfit, place or activity the USER asked for, in your own short words. "
+             "ONLY for a picture of YOURSELF (Mochi): use it when the user says you, yourself, Mochi or a selfie. For ANY "
+             "other subject (a dragon, a landscape, a person, an animal, a logo) do NOT use this: use comfy_txt2img. It "
+             "redraws you from your own portrait. scene: what should change or happen: the outfit, place or activity the "
+             "USER asked for, in your own short words. "
              "closeup=true makes a face close-up (set expression: relaxed|happy|excited|thinking|working|asking|"
              "worried|sad|sleepy). Saves into comfy/ and shows it in the chat.",
              {"scene": S, "closeup": B, "expression": S, "seed": I}, ["scene"])
@@ -236,6 +237,11 @@ def add_auto_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
         import random as _r
         from PIL import Image
         from .identity import LOCK, MOODS as _MOODS, TAGS
+        req = getattr(reg, "user_request", "") or ""
+        if req and req.isascii() and not re.search(r"\b(you|your|yours|yourself|mochi|self[- ]?portrait|selfie|jij|je|jezelf|jouw|toi|tu|ton|ta|tes|toi-m[eê]me|"
+                                              r"du|dich|dir|dein\w*|selbst|t[uú]|ti|tus?|usted|te)\b", req, re.I):
+            return ("ERROR: the user did not ask for a picture of YOU, so draw_myself is the wrong tool (it always draws "
+                    f"Mochi). They asked: {req.strip()[:160]!r}. Use comfy_txt2img for that subject.")
         root = Path(__file__).resolve().parent.parent
         mood = {"relaxed": "neutral"}.get(expression.lower(), expression.lower())
         if closeup:

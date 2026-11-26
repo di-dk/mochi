@@ -20,5 +20,8 @@ win11toast>=0.36; sys_platform == "win32"
 psutil>=7.0
 arabic-reshaper>=3.0         # Arabic and Hebrew in PDFs
 python-bidi>=0.6
+numpy>=2.0                    # data analysis and charts in run_python
+pandas>=2.2
+matplotlib>=3.9
 nepali-datetime==1.0.8.5     # Nepali (Bikram Sambat) calendar; MIT, no dependencies
 pywebview>=6.0; sys_platform == "win32"

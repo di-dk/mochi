@@ -197,6 +197,10 @@ def add_extra_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
     def read_skill(name: str):
         for s in all_skills(ws):
             if s["name"].lower() == name.lower() or s["path"].stem == slug(name):
+                gone = [t for t in re.findall(r"requires:\s*([^>]+?)\s*-->", s["text"]) for t in t.split(",") if t.strip() not in reg.tools]
+                if gone:
+                    return (f"This recipe needs the tool {', '.join(x.strip() for x in gone)}, which is NOT available on this machine. "
+                            "Do not call it and do not write it as text. Use another tool you do have (for a video: comfy_video).")
                 ok, why = skillscan.trust(cfg, s)
                 if not ok:
                     return (f"BLOCKED: the imported skill '{s['name']}' cannot be used because {why}. Do not follow "

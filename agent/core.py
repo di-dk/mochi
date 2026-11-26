@@ -59,6 +59,38 @@ ANNOUNCES = re.compile(r"\b(let me|let's|i'?ll|i will|i'm going to|i am going to
                        r"[^.?!\n]{0,80}\b(search|try|look|check|fetch|run|test|use|call|find|query|read|open|write|"
                        r"create|make|generate|get|retry|again|different)\b", re.I)
 
+# Files the user asked her to create, and claims of success: checked deterministically at the end of a request.
+_FILE_RE = re.compile(r"(?<![\w/.-])([\w][\w.-]*\.(?:pdf|docx?|xlsx?|csv|json|txt|md|html?|png|jpe?g|webp|gif|mp4|webm|mp3|wav|zip|pptx?|py|svg))\b", re.I)
+_MAKE_RE = re.compile(r"\b(save|saved|create|make|made|call|called|name|named|write|export|generate|store|output|produce)\b", re.I)
+_CLAIM_RE = re.compile(r"\b(successfully|done|created|saved|sorted|completed|finished|converted|organi[sz]ed|moved|made|"
+                       r"remembered|noted|stored|recorded|added|deleted|removed|sent|scheduled|updated|renamed)\b", re.I)
+_ACTION_REQ = re.compile(r"\b(remember|save|create|make|write|add|delete|remove|send|schedule|store|convert|rename|move|"
+                         r"generate|draw|note down)\b", re.I)
+_PASSIVE = {"web_search", "fetch_url", "find_skills", "read_skill", "recall", "comfy_status", "comfy_list_models",
+            "comfy_capabilities", "comfy_check", "comfy_node_info", "list_git_skills", "scan_skill", "use_tools", "set_plan",
+            "update_plan", "find_files", "search_files", "find_my_files", "list_dir", "read_file", "read_document",
+            "read_spreadsheet", "inspect_pdf", "view_image", "calculate", "date_math", "nepali_date", "nepali_format",
+            "http_request", "weather", "system_info", "media_info", "browser_read", "browser_open", "screenshot"}
+
+
+def requested_files(text: str, existing: set[str]) -> list[str]:
+    """File names the user asked her to CREATE (a creating verb just before the name) that did not exist before."""
+    out = []
+    for m in _FILE_RE.finditer(text):
+        name = m.group(1)
+        if name.lower() in existing or name in out:
+            continue
+        if _MAKE_RE.search(text[max(0, m.start() - 70):m.start()]):
+            out.append(name)
+    return out
+
+
+def missing_tools(recipe: str, tools) -> list[str]:
+    """Tools a recipe says it needs (<!-- requires: a, b -->) that are not available on this machine."""
+    m = re.search(r"^<!--\s*requires:\s*(.+?)\s*-->\s*$", recipe, re.M)
+    return [t for t in ([x.strip() for x in m.group(1).split(",")] if m else []) if t not in tools]
+
+
 SYSTEM_PROMPT = """You are {name}, a friendly, cheerful and capable autonomous assistant running locally on the
 user's {os_name} ({host}).
 {persona}
@@ -75,6 +107,12 @@ How to work:
 - VERIFY ONCE before you say "done": read files back, inspect_pdf the PDFs you made (render_page=1 if you can
   see images), view_image generated pictures, app_read results. If the check passes, move on — never redo a step
   that already succeeded. Only fix what the check shows is wrong.
+- Do exactly what was asked. Never quietly do something else instead (a different subject, a different file type, a
+  different name). If you cannot, say what you could not do and why, and offer one or two concrete options.
+- Never do arithmetic or date math in your head: use calculate and date_math. Never claim a task is done unless a tool
+  result shows it; if a step failed or was denied, say so plainly.
+- If a step fails, fix ONE thing and retry. If it fails twice, take another route (another tool, a short script with
+  run_python, or learn how) before giving up.
 - If you don't know how to do something, don't give up and don't guess: read_skill learn-new-skill and follow it
   (research, try safely, verify, then save_skill).
 - After finishing a new multi-step task successfully, save_skill so you can repeat it next time. When something
@@ -481,7 +519,8 @@ class Agent:
         if self._auto_tools():
             reg.enabled_groups |= smart.groups_for_text(user_text)
         if (self.cfg.get("skills") or {}).get("auto_match", True):
-            skills = [s for s in all_skills(self.policy.workspace) if skillscan.trust(self.cfg, s)[0]]
+            skills = [s for s in all_skills(self.policy.workspace)
+                      if skillscan.trust(self.cfg, s)[0] and not missing_tools(s["text"], reg.tools)]
             skill = smart.match_skill(user_text, skills)
             if not skill and smart.wants_nepali(user_text):          # Nepali in Devanagari has no Latin words to match
                 skill = next((s for s in skills if s["name"] == "nepali"), None)
@@ -535,6 +574,10 @@ class Agent:
         agent_cfg = self.cfg.get("agent") or {}
         nudges = tool_count = 0
         called: set[str] = set()          # tools used in this request
+        failed: dict[str, str] = {}       # action tools whose latest result was an error or a denial
+        ws_root = self.policy.workspace
+        existing = {p.name.lower() for p in list(ws_root.rglob("*"))[:5000] if p.is_file()} if ws_root.exists() else set()
+        deliver_nudges = honesty_nudges = 0
         seen: dict[tuple[str, str], int] = {}
         pending_answer, check_at = None, -1      # final check: the answer on hold and where the check started
         plan = getattr(reg, "plan", None)
@@ -594,6 +637,39 @@ class Agent:
                     continue
                 if self._take_inbox():
                     continue                    # the user added something while she was writing: keep going
+                have = {p.name.lower() for p in list(ws_root.rglob("*"))[:5000] if p.is_file()} if ws_root.exists() else set()
+                missing = [f for f in requested_files(user_text, existing) if f.lower() not in have]
+                if missing and deliver_nudges < 2:
+                    deliver_nudges += 1
+                    sample = ", ".join(sorted(have)[:12]) or "none"
+                    self.policy.audit("deliverable_missing", files=missing)
+                    self.on_event("nudge", {"text": "the file you were asked for does not exist yet"})
+                    self.messages.append({"role": "user", "content":
+                                          f"(System check: the user asked you to create {', '.join(missing)}, but no file with "
+                                          f"that exact name exists in your workspace. Files that do exist: {sample}. Create it "
+                                          "now with the right tool and the exact name, then tell the user where it is. If you "
+                                          "truly cannot, say so plainly.)"})
+                    continue
+                if (tool_count == 0 and honesty_nudges < 1 and _ACTION_REQ.search(user_text) and _CLAIM_RE.search(content or "")
+                        and not content.rstrip().endswith("?")):
+                    honesty_nudges += 1                 # she says she did it, but called no tool at all
+                    self.policy.audit("claim_without_action")
+                    self.on_event("nudge", {"text": "you said it is done but used no tool"})
+                    self.messages.append({"role": "user", "content":
+                                          "(System check: you said you did what was asked, but you called no tool, so nothing "
+                                          "happened. Call the right tool now (to keep something in memory: remember; to make a "
+                                          "file: the file tool for that type), then report what the tool returned.)"})
+                    continue
+                if failed and honesty_nudges < 1 and _CLAIM_RE.search(content or ""):
+                    honesty_nudges += 1
+                    lines = "; ".join(f"{k}: {v[:90]}" for k, v in list(failed.items())[:4])
+                    self.policy.audit("claim_after_failure", failed=list(failed))
+                    self.on_event("nudge", {"text": "a step failed or was denied"})
+                    self.messages.append({"role": "user", "content":
+                                          f"(System check: these steps failed or were denied and were not fixed afterwards: {lines}. "
+                                          "Do not claim success. Fix them now with tools, or tell the user exactly what did not work "
+                                          "and why, and what they can do.)"})
+                    continue
                 if agent_cfg.get("final_check", True) and tool_count >= 2 and pending_answer is None and content:
                     pending_answer, check_at = content, len(self.messages)
                     self.on_event("check", {})
@@ -623,6 +699,11 @@ class Agent:
                     self.messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
                     continue
                 result = reg.call(name, args, self.policy)
+                if name not in _PASSIVE:
+                    if result.startswith(("ERROR", "DENIED", "BLOCKED")):
+                        failed[name] = result
+                    else:
+                        failed.pop(name, None)
                 if name == "read_skill":         # load the tools the recipe is going to ask for
                     reg.enabled_groups |= smart.groups_for_tools(result, set(reg.tools))
                 fast = llm.get("fast_model")

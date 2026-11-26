@@ -78,6 +78,12 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
              {"path": S, "content": S}, ["path", "content"])
     def write_file(path: str, content: str):
         p = policy.check_write(path)
+        if p.suffix.lower() == ".json":
+            try:
+                json.loads(content)
+            except ValueError as e:
+                return (f"ERROR: that is not valid JSON ({e}), so {p.name} was NOT written. JSON needs double quotes around "
+                        "keys and strings, true/false/null (not True/False/None) and no trailing commas. Fix it and call again.")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
         return f"Wrote {len(content)} chars to {p}"
@@ -93,15 +99,50 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         p.write_text(text.replace(old, new), encoding="utf-8")
         return f"Edited {p}"
 
-    @reg.add("copy_path", "Copy a file or folder (e.g. bring an outside file into the workspace).",
-             {"src": S, "dst": S}, ["src", "dst"])
+    def into_folder(s: Path, dst: str, d: Path) -> Path:
+        """A destination that is an existing folder, or written with a trailing slash, means 'into that folder'."""
+        return d / s.name if (d.is_dir() or dst.endswith(("/", "\\"))) and not s.is_dir() else d
+
+    @reg.add("copy_path", "Copy a file or folder (e.g. bring an outside file into the workspace). If dst is an existing "
+             "folder, or ends with /, a file is copied INTO that folder.", {"src": S, "dst": S}, ["src", "dst"])
     def copy_path(src: str, dst: str):
-        s, d = policy.check_read(src), policy.check_write(dst)
-        if d.exists():
+        s = policy.check_read(src)
+        d = into_folder(s, dst, policy.check_write(dst))
+        policy.check_write(d)
+        if d.exists() and not s.is_dir():
             policy.require("overwrite", f"Overwrite existing {d}")
         d.parent.mkdir(parents=True, exist_ok=True)
         (shutil.copytree(s, d, dirs_exist_ok=True) if s.is_dir() else shutil.copy2(s, d))
         return f"Copied {s} -> {d}"
+
+    @reg.add("make_folder", "Create a folder (and any missing parent folders). Nothing happens if it already exists.",
+             {"path": S}, ["path"])
+    def make_folder(path: str):
+        p = policy.check_write(path)
+        if p.exists() and not p.is_dir():
+            raise Denied(f"{p} exists and is a file, not a folder.")
+        existed = p.is_dir()
+        p.mkdir(parents=True, exist_ok=True)
+        return f"Folder {'already exists' if existed else 'created'}: {p}"
+
+    @reg.add("move_path", "Move or rename a file or folder. If dst is an existing folder (or ends with /), the item is moved "
+             "INTO it. Never overwrites: a name clash gets ' (2)'. Inside the workspace it needs no approval.",
+             {"src": S, "dst": S}, ["src", "dst"])
+    def move_path(src: str, dst: str):
+        s = policy.check_write(src)                    # moving removes the original, so it must be writable
+        if not s.exists():
+            raise Denied(f"{s} does not exist.")
+        d = into_folder(s, dst, policy.check_write(dst))
+        if s.is_dir() and d.is_relative_to(s):
+            raise Denied("A folder cannot be moved into itself.")
+        d.parent.mkdir(parents=True, exist_ok=True)
+        n = 2
+        orig = d
+        while d.exists():
+            d = orig.with_name(f"{orig.stem} ({n}){orig.suffix}")
+            n += 1
+        shutil.move(str(s), str(d))
+        return f"Moved {s} -> {d}"
 
     @reg.add("delete_path", "Delete a file or folder. ALWAYS asks the user first.", {"path": S}, ["path"])
     def delete_path(path: str):
@@ -124,8 +165,9 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         return f"exit={r.returncode}\n{r.stdout[-8000:]}" + (f"\nSTDERR:\n{r.stderr[-3000:]}" if r.stderr.strip() else "")
 
     @reg.add("run_python",
-             "Run a Python script in the agent's venv (cwd = workspace). Has reportlab, httpx, pillow, pyautogui, "
-             "trafilatura, markdown. Asks the user first.",
+             "Run a Python script in the agent's venv (cwd = workspace). Has pandas, numpy, matplotlib (use the 'Agg' backend and "
+             "savefig), reportlab, httpx, pillow, trafilatura, markdown, openpyxl, pypdf. Print what you need to see. "
+             "Asks the user first.",
              {"code": S, "timeout_s": I}, ["code"])
     def run_python(code: str, timeout_s: int = 0):
         policy.require("python", "Run Python script:\n" + code[:1500])
@@ -143,33 +185,40 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
     def web_search(query: str, max_results: int = 6):
         from ddgs import DDGS
         errors: list[str] = []
-        for backend in ("auto", "bing", "brave", "duckduckgo"):      # one flaky engine must not end the search
+        for backend in ("auto", "google", "yahoo", "yandex", "bing", "brave", "duckduckgo"):   # one flaky engine must not end it
             try:
                 res = DDGS().text(query, max_results=max_results, backend=backend)
             except Exception as e:  # noqa: BLE001
                 errors.append(f"{backend}: {type(e).__name__}")
-                time.sleep(1)
+                time.sleep(0.3)
                 continue
             if res:
                 return "\n\n".join(f"[{i+1}] {r.get('title')}\n{r.get('href')}\n{r.get('body')}"
                                     for i, r in enumerate(res))
         extra: list[str] = []
-        try:                                            # Wikipedia and GitHub answer even when the engines are blocked
+        try:          # Wikipedia answers even when the engines are blocked: article SUMMARIES, so no link has to be guessed
             w = httpx.get("https://en.wikipedia.org/w/api.php", timeout=15, headers={"User-Agent": "mochi"},
-                          params={"action": "opensearch", "search": query, "limit": 3, "format": "json"}).json()
-            extra += [f"[Wikipedia] {t}\n{u}\n{d}" for t, d, u in zip(w[1], w[2], w[3])]
+                          params={"action": "query", "generator": "search", "gsrsearch": query, "gsrlimit": 3,
+                                  "prop": "extracts|info", "inprop": "url", "exintro": 1, "explaintext": 1, "exchars": 700,
+                                  "format": "json"}).json()
+            pages = sorted((w.get("query") or {}).get("pages", {}).values(), key=lambda x: x.get("index", 9))
+            extra += [f"[Wikipedia] {x.get('title')}\n{x.get('fullurl')}\n{(x.get('extract') or '').strip()}" for x in pages]
         except Exception:  # noqa: BLE001
             pass
-        try:
-            g = httpx.get("https://api.github.com/search/repositories", timeout=15, headers={"User-Agent": "mochi"},
-                          params={"q": query, "per_page": 4, "sort": "stars"}).json()
-            extra += [f"[GitHub repo] {i['full_name']} ({i['stargazers_count']} stars)\n{i['html_url']}\n"
-                      f"{i.get('description') or ''}" for i in g.get("items", [])]
-        except Exception:  # noqa: BLE001
-            pass
+        if re.search(r"\b(api|library|libraries|python|javascript|typescript|github|package|cli|sdk|framework|open[- ]source|"
+                     r"plugin|npm|pip|repo|repository|software|tool|app)\b", query, re.I):
+            try:      # GitHub is only useful for software questions
+                g = httpx.get("https://api.github.com/search/repositories", timeout=15, headers={"User-Agent": "mochi"},
+                              params={"q": query, "per_page": 4, "sort": "stars"}).json()
+                extra += [f"[GitHub repo] {i['full_name']} ({i['stargazers_count']} stars)\n{i['html_url']}\n"
+                          f"{i.get('description') or ''}" for i in g.get("items", [])]
+            except Exception:  # noqa: BLE001
+                pass
         if extra:
-            return ("(The search engines failed (" + ", ".join(errors) + "); these come from Wikipedia and GitHub "
-                    "instead. fetch_url the best one, or retry with other words.)\n\n" + "\n\n".join(extra))
+            return ("(The search engines failed (" + ", ".join(errors) + "); these are Wikipedia article summaries"
+                    + (" and GitHub repositories" if any(x.startswith("[GitHub") for x in extra) else "")
+                    + " instead. Use the summaries directly; fetch_url a link only if you need more detail. If they do not "
+                    "cover the question, say what you could not verify.)\n\n" + "\n\n".join(extra))
         return ("ERROR: web search failed on every engine (" + ", ".join(errors or ["no results"]) + "). Try different "
                 "words, or fetch_url a site you already know holds the answer (official docs, Wikipedia).")
 

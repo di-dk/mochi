@@ -61,6 +61,89 @@ def add_more_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
         ok, err = pc.speak(text, language)
         return "Spoke it." if ok else f"Could not speak: {err}"
 
+    @reg.add("calculate",
+             "Exact arithmetic. ALWAYS use this instead of working numbers out yourself. Supports + - * / // % ** (), "
+             "round, abs, min, max, sqrt, pi, e, percentages ('15% of 2340', '8%'), and thousands commas. Returns the result.",
+             {"expression": S}, ["expression"])
+    def calculate(expression: str):
+        import ast
+        import math
+        import operator as op
+        e = expression.strip().replace("×", "*").replace("÷", "/").replace("^", "**")
+        e = re.sub(r"(?<=\d),(?=\d{3}\b)", "", e)                                   # 2,340 -> 2340
+        e = re.sub(r"(\d+(?:\.\d+)?)\s*%\s*of\s+", r"(\1/100)*", e, flags=re.I)        # 15% of 2340
+        e = re.sub(r"(\d+(?:\.\d+)?)\s*%(?!\s*[\d(])", r"(\1/100)", e)               # 8%  (a lone percent)
+        bin_ops = {ast.Add: op.add, ast.Sub: op.sub, ast.Mult: op.mul, ast.Div: op.truediv, ast.FloorDiv: op.floordiv,
+                   ast.Mod: op.mod, ast.Pow: op.pow}
+        funcs = {"round": round, "abs": abs, "min": min, "max": max, "sqrt": math.sqrt}
+        consts = {"pi": math.pi, "e": math.e}
+
+        def ev(n):
+            if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)) and not isinstance(n.value, bool):
+                return n.value
+            if isinstance(n, ast.BinOp) and type(n.op) in bin_ops:
+                a, b = ev(n.left), ev(n.right)
+                if isinstance(n.op, ast.Pow) and (abs(b) > 1000 or abs(a) > 1e12):
+                    raise ValueError("that power is too large")
+                return bin_ops[type(n.op)](a, b)
+            if isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.UAdd, ast.USub)):
+                return ev(n.operand) if isinstance(n.op, ast.UAdd) else -ev(n.operand)
+            if isinstance(n, ast.Name) and n.id in consts:
+                return consts[n.id]
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in funcs and not n.keywords:
+                return funcs[n.func.id](*[ev(a) for a in n.args])
+            raise ValueError("only numbers, + - * / // % ** and a few functions are allowed")
+        try:
+            v = ev(ast.parse(e, mode="eval").body)
+        except ZeroDivisionError:
+            return "ERROR: division by zero."
+        except (ValueError, SyntaxError, TypeError, OverflowError) as ex:
+            return f"ERROR: cannot calculate {expression!r}: {ex}"
+        if isinstance(v, float) and v == int(v) and abs(v) < 1e15:
+            v = int(v)
+        elif isinstance(v, float):
+            v = float(f"{v:.12g}")
+        return f"{expression.strip()} = {v:,}" if isinstance(v, int) else f"{expression.strip()} = {v}"
+
+    @reg.add("date_math",
+             "Exact date arithmetic. ALWAYS use this for days between dates, adding or subtracting days/weeks/months, or the "
+             "weekday of a date. start (and end) as YYYY-MM-DD, 'today', or like '14 July 2026'. With end: the difference. With "
+             "days/weeks/months: start plus that (negative to go back). With neither: weekday and week number of start.",
+             {"start": S, "end": S, "days": I, "weeks": I, "months": I}, ["start"])
+    def date_math(start: str, end: str = "", days: int = 0, weeks: int = 0, months: int = 0):
+        import calendar
+        import datetime as dtm
+
+        def parse(s: str):
+            s = s.strip()
+            if s.lower() == "today":
+                return dtm.date.today()
+            for f in ("%Y-%m-%d", "%d %B %Y", "%B %d %Y", "%B %d, %Y", "%d %b %Y", "%b %d %Y", "%b %d, %Y", "%d/%m/%Y", "%d-%m-%Y"):
+                try:
+                    return dtm.datetime.strptime(s, f).date()
+                except ValueError:
+                    continue
+            raise ValueError(f"cannot read the date {s!r}; use YYYY-MM-DD")
+        try:
+            a = parse(start)
+            if end.strip():
+                b = parse(end)
+                sign, lo, hi = (1, a, b) if b >= a else (-1, b, a)
+                m = (hi.year - lo.year) * 12 + hi.month - lo.month - (1 if hi.day < lo.day else 0)
+                ny, nm = lo.year + (lo.month - 1 + m) // 12, (lo.month - 1 + m) % 12 + 1
+                rest = (hi - lo.replace(year=ny, month=nm, day=min(lo.day, calendar.monthrange(ny, nm)[1]))).days
+                n = (hi - lo).days
+                return (f"From {a.strftime('%A')} {a.isoformat()} to {b.strftime('%A')} {b.isoformat()}: {sign * n} days "
+                        f"({n // 7} weeks {n % 7} days; {m} months {rest} days)")
+            if days or weeks or months:
+                y, mo = a.year + (a.month - 1 + months) // 12, (a.month - 1 + months) % 12 + 1
+                r = a.replace(year=y, month=mo, day=min(a.day, calendar.monthrange(y, mo)[1])) + dtm.timedelta(days=days + 7 * weeks)
+                return f"{a.isoformat()} {months:+d} months {weeks:+d} weeks {days:+d} days = {r.isoformat()} ({r.strftime('%A')})"
+            iso = a.isocalendar()
+            return f"{a.isoformat()} is a {a.strftime('%A')}, day {a.timetuple().tm_yday} of the year, ISO week {iso[1]}"
+        except ValueError as ex:
+            return f"ERROR: {ex}"
+
     @reg.add("translate_text",
              "Translate text with a DEDICATED translation pass: far more accurate than translating in your head while "
              "you also manage tools. to: the target language ('Nepali', 'Dutch', 'ja'...); source: optional; tone: "

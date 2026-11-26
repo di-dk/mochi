@@ -39,3 +39,4 @@ make_video(title="Space quiz", style="quiz", end="How many did you get right?",
             {"q": "How long does sunlight take to reach Earth?", "options": ["8 seconds", "8 minutes", "8 hours"], "answer": "8 minutes", "why": "About 8 min 20 s."}])
 
 EXAMPLE (3d): same as 2d but style="3d", look="planet" (no emoji needed; text with *stars* becomes elegant italics).
+<!-- requires: make_video -->

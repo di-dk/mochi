@@ -213,6 +213,31 @@ The chat window shows it under her name (hover for details), the terminal banner
 development checkout says so, e.g. `v0.13.0 (development: 3 newer commits, abc1234, local changes)`. The number lives in
 `agent/version.py` and matches the release tag.
 
+## Tested on real tasks
+
+`tools/battery.py` runs 22 realistic tasks against her real model in throw-away workspaces and checks the results: arithmetic and dates,
+Python scripts, Excel, PDF, Word-free conversions, sorting and renaming files, summaries, invoices, translation, web research, Nepali
+dates, memory, charts, emails, JSON, and ComfyUI pictures, edits, video and self-portraits. Routine approvals are granted; package
+installs, sudo, deletes and anything outside the workspace are refused. Run it with `python tools/battery.py` (needs Ollama, the
+internet and ComfyUI; results go to `logs/battery.jsonl`).
+
+The first run passed 8 of 12 tasks; each failure became a fix, and the full 22-task run then passed 20, with the last two
+failures fixed and re-checked on their own. What it found and what changed:
+
+- **Arithmetic and dates done in her head were wrong** (135 days came out as 126; she guessed a weekday): new `calculate` and
+  `date_math` tools (exact, safe), and the date tool always names the weekdays.
+- **No way to move files**, so she faked it and claimed success: new `make_folder` and `move_path`; `copy_path` copies into folders.
+- **Claiming success without checking**: she cannot finish while a file you named does not exist; a success claim after a failed or
+  denied step, or after calling no tool at all ("I've remembered it"), is challenged once.
+- **Invalid JSON** (Python quotes) written as ".json": the file tool refuses it with the reason.
+- **A self-portrait for "a red dragon"**: `draw_myself` now refuses requests that are not about her.
+- **Recipes for tools that are not installed** (a video studio) are never offered; `comfy_video` is used instead.
+- **Search engines**: more engines are tried, Wikipedia summaries are the fallback, and a `web-research` recipe says to use official
+  sources and never answer a current fact from memory.
+- Data libraries (pandas, numpy, matplotlib) for `run_python`, and recipes `convert-files`, `data-analysis` and `web-research`.
+
+It is a floor, not a promise: 22 tasks cannot cover everything, and a model can still misjudge something the checks do not see.
+
 ## Her moods
 
 Her profile picture is a close-up that changes with how she feels: relaxed, happy, excited (a long task, or you

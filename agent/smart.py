@@ -8,6 +8,7 @@ CORE = {  # documentation of the always-on set; anything without a group is alwa
     "list_dir", "read_file", "write_file", "edit_file", "copy_path", "delete_path", "find_files", "search_files",
     "web_search", "fetch_url", "download_file", "set_plan", "update_plan", "find_skills", "read_skill",
     "save_skill", "save_lesson", "remember", "recall", "wait", "use_tools", "list_git_skills", "import_skill", "scan_skill",
+    "make_folder", "move_path", "calculate", "date_math",
 }
 GROUPS: dict[str, set[str]] = {
     "code": {"run_powershell", "run_shell", "run_python"},
