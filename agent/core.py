@@ -62,6 +62,7 @@ ANNOUNCES = re.compile(r"\b(let me|let's|i'?ll|i will|i'm going to|i am going to
 SYSTEM_PROMPT = """You are {name}, a friendly, cheerful and capable autonomous assistant running locally on the
 user's {os_name} ({host}).
 {persona}
+{language_rule}
 Today is {date}. Your portrait is {root}/assets/mochi.png and your expression pictures are in
 {root}/assets/expressions (you may read them; ask the user before changing anything outside your workspace).
 Your workspace folder is {workspace} — relative paths resolve there and you may freely
@@ -272,6 +273,20 @@ class Agent:
             self.vision = bool(info and info[0].get("vision"))
         self.registry.vision = self.vision
 
+    def _language_rule(self) -> str:
+        lang = str((self.cfg.get("agent") or {}).get("language") or "auto").strip()
+        keep = ("Keep code, commands, file names, tool names and JSON keys exactly as they are, and quoted text in its "
+                "original language. Be natural: use the right formal or informal address for the language (tu/vous, "
+                "du/Sie, je/u, tú/usted). Your personality stays warm and playful in every language, your name stays "
+                "Mochi, and your look never changes. If you are not confident in a language, say so briefly.")
+        if lang.lower() in ("", "auto"):
+            return ("Language: you speak every language you know. ALWAYS answer in the language the user writes in, and "
+                    "switch when they switch; if a message mixes languages, use the main one. Write documents, emails and "
+                    "files in the language the user asks for (default: the language they write in). Search the web in "
+                    "the language that fits the topic. " + keep)
+        return (f"Language: ALWAYS answer in {lang}, whatever language the user writes in (understand every language), "
+                f"unless they ask for another one. Write documents in {lang} unless asked otherwise. " + keep)
+
     def _persona(self) -> str:
         f = ROOT / self.cfg["agent"].get("persona_file", "persona.md")
         if not f.exists():
@@ -295,6 +310,7 @@ class Agent:
         lessons = recent_lessons(ws)
         return {"role": "system", "content": SYSTEM_PROMPT.format(
             name=self.cfg["agent"]["name"], persona=self._persona(), host=platform.node(), os_name=OS_NAME, root=str(ROOT),
+            language_rule=self._language_rule(),
             date=time.strftime("%A %Y-%m-%d %H:%M"), workspace=ws, memory=memory,
             vision_note=VISION_ON if self.vision else VISION_OFF,
             skills=f"\nSkills you have (read_skill for the steps):\n{idx}\n" if idx else "",
@@ -467,6 +483,8 @@ class Agent:
         if (self.cfg.get("skills") or {}).get("auto_match", True):
             skills = [s for s in all_skills(self.policy.workspace) if skillscan.trust(self.cfg, s)[0]]
             skill = smart.match_skill(user_text, skills)
+            if not skill and smart.wants_nepali(user_text):          # Nepali in Devanagari has no Latin words to match
+                skill = next((s for s in skills if s["name"] == "nepali"), None)
             if not skill and smart.wants_learning(user_text):      # "learn how to ...": hand her the learning recipe
                 skill = next((s for s in skills if s["name"] == "learn-new-skill"), None)
             self._deep = bool(skill and skill["name"] == "learn-new-skill")      # hard task: let the model think
@@ -474,8 +492,19 @@ class Agent:
                 reg.enabled_groups |= smart.groups_for_tools(skill["text"], set(reg.tools))
                 self.on_event("skill", {"name": skill["name"]})
                 recipe = skill["text"].strip()
-                if len(recipe) > 6000:
-                    recipe = recipe[:6000] + f"\n(...cut off; read_skill '{skill['name']}' for the rest)"
+                inc = re.search(r"^<!--\s*includes:\s*(.+?)\s*-->\s*$", recipe, re.M)
+                for nm in ([x.strip() for x in inc.group(1).split(",")] if inc else []):   # e.g. the Nepali glossary
+                    extra = next((s for s in skills if s["name"] == nm), None)
+                    if extra:
+                        recipe += f"\n\n--- {nm} ---\n" + extra["text"].split("\n\n", 1)[-1].strip()
+                if skill["name"] in ("nepali", "nepal-info"):       # today's date, computed now (never from an example)
+                    try:
+                        from . import nepali
+                        recipe += "\n\n(" + nepali.today_line() + ")"
+                    except Exception:  # noqa: BLE001
+                        pass
+                if len(recipe) > 9000:
+                    recipe = recipe[:9000] + f"\n(...cut off; read_skill '{skill['name']}' for the rest)"
                 text += (f"\n\n(System: your skill '{skill['name']}' matches this request. Follow it, unless it "
                          f"clearly does not fit:\n{recipe}\n)")
         return text
@@ -530,6 +559,16 @@ class Agent:
             except Stopped:
                 self.policy.audit("stopped")
                 return STOPPED
+            if not calls and not (content or "").strip() and kwargs.get("tools"):
+                # Some local models answer with nothing when tools are attached (they try a tool call the server
+                # cannot parse). Ask once more with no tools, so a plain answer is still possible.
+                self.policy.audit("empty_reply_retry", step=step + 1)
+                retry = {k: v for k, v in kwargs.items() if k != "tools"}
+                try:
+                    content, calls = self._complete(retry, quiet=False)
+                except Stopped:
+                    self.policy.audit("stopped")
+                    return STOPPED
             entry: dict = {"role": "assistant", "content": content}
             if calls:
                 entry["tool_calls"] = [{"id": c["id"], "type": "function",

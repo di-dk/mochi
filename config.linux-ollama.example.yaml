@@ -8,4 +8,5 @@ llm:
   base_url: http://localhost:11434/v1  # Ollama
   model: qwen3:14b                     # must match a name in `ollama list`, and the model must support tool calls
   reasoning_effort: none               # lower latency; set to low/medium/high for thinking models
+  # translator_model: gemma3:12b     # optional: a stronger multilingual model only for translate_text (ollama pull gemma3:12b)
   # api_key_env: MOCHI_API_KEY         # only for hosted servers: name of an env var that holds the key

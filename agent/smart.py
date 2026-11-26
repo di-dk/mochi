@@ -16,11 +16,12 @@ GROUPS: dict[str, set[str]] = {
     "desktop": {"list_windows", "screenshot", "focus_window", "mouse_click", "type_text", "hotkey", "list_apps",
                 "launch_app", "open_with_default_app", "app_inspect", "app_read", "app_click", "app_set_text",
                 "app_keys", "app_close", "clipboard_get", "clipboard_set"},
-    "docs": {"create_pdf", "inspect_pdf", "create_docx", "read_document", "read_spreadsheet", "create_spreadsheet"},
+    "docs": {"create_pdf", "inspect_pdf", "create_docx", "read_document", "read_spreadsheet", "create_spreadsheet",
+             "translate_text"},
     "media": {"comfy_status", "comfy_list_models", "comfy_txt2img", "comfy_run_workflow", "image_edit",
               "view_image", "media_convert", "media_info", "make_video", "list_my_videos", "share_file", "find_my_files", "comfy_node_info", "draw_myself"},
     "system": {"schedule_task", "list_scheduled_tasks", "delete_scheduled_task", "system_info", "list_processes",
-               "kill_process", "notify", "zip_files", "unzip", "speak", "weather", "disk_usage",
+               "kill_process", "notify", "zip_files", "unzip", "speak", "weather", "disk_usage", "nepali_date", "nepali_format",
                "find_duplicates"},
 }
 GROUP_HELP = {
@@ -41,7 +42,7 @@ KEYWORDS: dict[str, set[str]] = {
     "desktop": {"app", "apps", "window", "windows", "launch", "notepad", "calculator", "clipboard", "desktop",
                 "screenshot", "paste", "explorer", "program", "paint", "keyboard", "mouse"},
     "docs": {"pdf", "word", "docx", "excel", "xlsx", "spreadsheet", "csv", "report", "document", "documents",
-             "sheet", "table", "invoice", "minutes"},
+             "sheet", "table", "invoice", "minutes", "translate", "translation", "translator", "translating"},
     "media": {"image", "images", "picture", "pictures", "photo", "draw", "drawing", "art", "banner", "logo",
               "video", "videos", "audio", "gif", "mp3", "mp4", "comfy", "comfyui", "meme", "convert", "resize",
               "crop", "thumbnail", "wallpaper", "quiz", "short", "shorts", "share", "find", "recent", "latest", "generated", "yourself", "selfie", "brighten",
@@ -49,7 +50,8 @@ KEYWORDS: dict[str, set[str]] = {
     "system": {"schedule", "scheduled", "every", "daily", "weekly", "hourly", "remind", "reminder", "monitor",
                "watch", "alert", "notify", "process", "processes", "cpu", "ram", "disk", "gpu", "zip", "unzip",
                "battery", "weather", "forecast", "temperature", "speak", "aloud", "voice", "duplicate",
-               "duplicates", "storage", "space"},
+               "duplicates", "storage", "space", "nepali", "nepal", "bikram", "sambat", "miti", "devanagari", "lakh",
+               "crore"},
 }
 STOP = set("""a an and are as at be but by can could do does for from get give go has have help how i if in into is it
 its just let like make me my need of on one or our out please put she should show so some tell that the their them
@@ -92,6 +94,19 @@ def groups_for_tools(text: str, known: set[str]) -> set[str]:
 
 LEARN = re.compile(r"\b(learn (how|to)|teach yourself|figure (it |this |that )?out|find out how|work out how|"
                    r"you (don'?t|do not) (know|have a skill)|no skill (for|yet)|new skill)\b", re.I)
+
+
+_DEVA = re.compile(r"[\u0900-\u097f]")
+_NEPALI = re.compile(r"(छु|छौ|छन्|हुन्छ|गर्नुहोस्|तपाईं|नेपाल|नेपाली|मलाई|तिमी|हजुर|होइन|छैन|मोचि|(?<![\u0900-\u097f])छ(?![\u0900-\u097f])|(?<![\u0900-\u097f])हो(?![\u0900-\u097f]))")
+_HINDI = re.compile(r"((?<![\u0900-\u097f])(है|हैं|में|की|आप|क्या|नहीं|और|यह|वह|मैं)(?![\u0900-\u097f])|हूँ|हूं|कृपया बताइए)")
+
+
+def wants_nepali(text: str) -> bool:
+    """Devanagari text that is Nepali rather than Hindi (the two share a script)."""
+    if not _DEVA.search(text):
+        return False
+    n, h = len(_NEPALI.findall(text)), len(_HINDI.findall(text))
+    return n >= 1 and n >= h
 
 
 def wants_learning(text: str) -> bool:

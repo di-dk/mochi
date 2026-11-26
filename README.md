@@ -157,6 +157,37 @@ installs or trusts one without checking it with [NVIDIA SkillSpector](https://gi
 
 A scan lowers the risk, it does not remove it: static analysis can miss things. Skills you do not need, you should not install.
 
+## Many languages, and Nepali
+
+She answers in the language you write in and switches when you do (`agent.language: auto`; set a fixed language such as
+`Dutch` or `Japanese` in `config.local.yaml` to always use it). Her name, her look and her warm personality stay the same
+in every language, and she uses the right politeness level for the language (tu/vous, du/Sie, u/je, तपाईं/तिमी...).
+Skills: `work-in-language` (reply, research and write in a language), `translate-text` (files and documents, keeping the
+structure and a glossary), `nepali` and `nepal-info`.
+
+What the tools do with other scripts:
+
+| Script | PDF | Word | Notes |
+|---|---|---|---|
+| Western European, Cyrillic, Greek, Central European (ł, ő, ș...) | yes (bundled DejaVu Sans) | yes | |
+| Chinese, Japanese, Korean | yes, can be mixed with other scripts | yes | uses the PDF viewer's own CJK fonts (Korean needs one on the viewing computer) |
+| Arabic, Hebrew (right to left) | yes, shaped and right-aligned | yes, marked right-to-left | |
+| Nepali, Hindi (Devanagari), Thai and other complex scripts | yes, printed with the browser engine (Chromium) | yes | needs `playwright install chromium`; without it the tool says so and suggests Word |
+
+`speak` takes a language code (`ne`, `nl`, `fr`, ...) and uses a matching voice when one is installed. The chat window
+shows any script and right-to-left text. Its buttons and labels are still in English.
+
+**Nepali (नेपाली).** She writes Devanagari by default, understands Romanized Nepali, uses तपाईं with you, and checks rare
+words instead of guessing (Wiktionary, ne.wikipedia). For Nepal she has the Bikram Sambat calendar (`nepali_date`:
+AD to BS and back, today's date, month and weekday names; it uses the `nepali-datetime` package, which I checked against
+the Nepali New Year dates and Bijaya Dashami 2082) and Nepali number styles (`nepali_format`: Devanagari digits, lakh/crore
+grouping, `रु. १२,३४,५६७`), plus local units, festivals (always looked up, never guessed) and money. Translations go through `translate_text`, a dedicated pass with a checked glossary (`skills/nepali-glossary.md`), and
+today's Nepali date is placed in front of her fresh each time (she used to copy an example date). Honest limits: her
+Nepali is only as good as the model behind it. In my tests a 14B Qwen model managed everyday sentences but garbled harder
+ones, while `gemma3:12b` as the translator (`llm.translator_model: gemma3:12b`, `ollama pull gemma3:12b`) was clearly
+better on 4 of 5 new sentences and 2 to 4 times faster; it still makes mistakes (it misread "happy to meet you" and once put a
+stray Latin letter in a word, which she now catches and retries). For anything official, have a native speaker check it.
+
 ## Her moods
 
 Her profile picture is a close-up that changes with how she feels: relaxed, happy, excited (a long task, or you
@@ -239,7 +270,7 @@ If your antivirus still quarantines something:
   `decision-questionnaire`, `flashcards`, `humanize-text`, `simple-english`, `creative-ideation`,
   `content-calendar`, `songwriting`) and building (`systematic-debugging`, `test-driven-development`, `spike`,
   `plan-interview`, `api-debugging`, `github-cli`, `web-app-qa`, `architecture-diagram`, `html-mockups`,
-  `meme-maker`). Only the first 40 skills are listed to the model, so keep the total under that.
+  `meme-maker`). Only the first 60 skills are listed to the model, so keep the total under that.
 - **Lessons:** when something fails and she finds the fix, she saves a one-liner (`workspace\lessons.md`) that
   she follows from then on.
 - **Loop breakers:** repeating the same failing call, or the same action 3 times, triggers a "change approach" hint;

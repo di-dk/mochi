@@ -412,7 +412,9 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         p = policy.check_write(path if path.lower().endswith(".pdf") else path + ".pdf")
         p.parent.mkdir(parents=True, exist_ok=True)
         pages = markdown_to_pdf(markdown, p, title=title, base_dir=ws)
-        return f"Created {p} ({pages} page(s), {p.stat().st_size} bytes)"
+        from .pdf import NOTES
+        return (f"Created {p} ({pages} page(s), {p.stat().st_size} bytes)"
+                + ("".join(f"\nNote: {n}" for n in NOTES)))
 
     # ------------------------------------------------------------------ ComfyUI
     curl = cfg["comfyui"]["url"].rstrip("/")

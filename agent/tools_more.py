@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import subprocess
 from collections import defaultdict
 from pathlib import Path
@@ -13,6 +14,7 @@ from .policy import Policy
 from .registry import Registry
 
 S = {"type": "string"}
+B = {"type": "boolean"}
 I = {"type": "integer"}
 
 WMO = {0: "clear", 1: "mostly clear", 2: "partly cloudy", 3: "overcast", 45: "fog", 48: "rime fog",
@@ -48,15 +50,113 @@ def _walk_sizes(root: Path, limit: int = 200_000):
 
 
 def add_more_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
-    @reg.add("speak", "Say text out loud through the speakers. Max ~1500 characters.",
-             {"text": S}, ["text"])
-    def speak(text: str):
+    @reg.add("speak", "Say text out loud through the speakers. Max ~1500 characters. language: the ISO code of the "
+                      "text (nl, fr, de, es, it, ja, ...) so a matching voice is used; say it in the language you write.",
+             {"text": S, "language": S}, ["text"])
+    def speak(text: str, language: str = ""):
         text = text.strip()[:1500]
         if not text:
             return "Nothing to say."
         from . import platform_compat as pc
-        ok, err = pc.speak(text)
+        ok, err = pc.speak(text, language)
         return "Spoke it." if ok else f"Could not speak: {err}"
+
+    @reg.add("translate_text",
+             "Translate text with a DEDICATED translation pass: far more accurate than translating in your head while "
+             "you also manage tools. to: the target language ('Nepali', 'Dutch', 'ja'...); source: optional; tone: "
+             "'polite' (default), 'casual' or 'formal'. For Nepali the checked glossary is used automatically. Long text "
+             "is split into chunks. Use it for every translation, then read the result once and fix obvious slips.",
+             {"text": S, "to": S, "source": S, "tone": S}, ["text", "to"])
+    def translate_text(text: str, to: str, source: str = "", tone: str = "polite"):
+        from openai import OpenAI
+
+        from .core import ROOT, api_key
+        llm = cfg["llm"]
+        model = llm.get("translator_model") or llm["model"]
+        text = text.strip()
+        if not text:
+            return "Nothing to translate."
+        system = ("You are a careful professional translator" + (f" from {source}" if source else "")
+                  + f" into {to}. Keep the meaning, the tone ({tone}), names, numbers, links, Markdown and placeholders "
+                  "such as {name} or %s exactly as they are. Write natural, idiomatic text that a native speaker would "
+                  "write, not a word-for-word copy. Output ONLY the translation, with no notes, quotes or explanations.")
+        if to.strip().lower() in ("nepali", "ne", "nep", "nepalese", "नेपाली"):
+            gloss = ROOT / "skills" / "nepali-glossary.md"
+            system += ("\n\nNepali rules: write Devanagari; use तपाईं-level politeness; postpositions are written attached to "
+                       "the word (घरमा, मलाई, शुक्रबारसम्म); never use Hindi words or Hindi grammar (है, में, करता, आप); use "
+                       "everyday words; keep dates as they are. Use the checked vocabulary and patterns below exactly.\n\n"
+                       + (gloss.read_text(encoding="utf-8").split("\n\n", 1)[-1] if gloss.exists() else ""))
+        client = OpenAI(base_url=llm["base_url"], api_key=api_key(cfg), timeout=600)
+        paras, chunks, cur = text.split("\n"), [], ""
+        for line in paras:                                   # about 1800 characters per request
+            if len(cur) + len(line) > 1800 and cur:
+                chunks.append(cur)
+                cur = ""
+            cur += line + "\n"
+        chunks.append(cur)
+        if len(text) > 20000:
+            return "ERROR: that is more than 20,000 characters; translate it in parts."
+        out = []
+        for ch in chunks:
+            kw = dict(model=model, temperature=0.2, messages=[{"role": "system", "content": system},
+                                                              {"role": "user", "content": ch.strip()}])
+            try:
+                r = client.chat.completions.create(**kw, **({"reasoning_effort": "none"} if llm.get("reasoning_effort") else {}))
+            except Exception:  # noqa: BLE001  (a model that does not know reasoning_effort)
+                r = client.chat.completions.create(**kw)
+            piece = (r.choices[0].message.content or "").strip()
+            if not piece:
+                return f"ERROR: the translation model ({model}) returned nothing. Try again or set llm.translator_model."
+            glitch = re.compile(r"[\u0900-\u097f\u0600-\u06ff\u0590-\u05ff][A-Za-z]|[A-Za-z][\u0900-\u097f\u0600-\u06ff\u0590-\u05ff]")
+            if glitch.search(piece):          # a stray Latin letter inside a word (models sometimes slip): ask once more
+                kw2 = dict(kw, temperature=0.0)
+                try:
+                    r2 = client.chat.completions.create(**kw2, **({"reasoning_effort": "none"} if llm.get("reasoning_effort") else {}))
+                except Exception:  # noqa: BLE001
+                    r2 = client.chat.completions.create(**kw2)
+                again = (r2.choices[0].message.content or "").strip()
+                if again and not glitch.search(again):
+                    piece = again
+                else:
+                    bad = glitch.search(piece)
+                    piece += f"\n(⚠ check the spelling near '{piece[max(0, bad.start() - 6):bad.end() + 6]}': a Latin letter slipped into a word)"
+            out.append(piece)
+        return "\n".join(out)
+
+    @reg.add("nepali_date",
+             "Convert a date between the Gregorian (AD) and the Nepali Bikram Sambat (BS) calendar; empty = today. "
+             "Give 2026-11-26 (AD) or 2083-08-10 BS (Devanagari digits work too). Returns both calendars with the "
+             "weekday and the month in Nepali and English. Use it for EVERY Nepali date: month lengths change every "
+             "year, so never work out a BS date yourself. Years BS 1975-2100.", {"date": S})
+    def nepali_date(date: str = ""):
+        try:
+            from . import nepali
+            r = nepali.convert(date)
+        except ValueError as e:
+            return f"ERROR: {e}"
+        except ImportError:
+            return "ERROR: the nepali-datetime package is not installed (pip install nepali-datetime)."
+        return (f"AD: {r['ad_en']} ({r['ad']})\nBS: {r['bs']}  =  {r['bs_ne']}\n"
+                f"Month: {r['month_ne']} ({r['month_en']}), weekday: {r['weekday_ne']} ({r['weekday_en']})")
+
+    @reg.add("nepali_format",
+             "Format numbers the Nepali way. mode: 'digits' (1234 -> १२३४), 'ascii' (१२३४ -> 1234), 'group' (1234567 -> "
+             "12,34,567: lakh and crore grouping) or 'money' (-> रु. १२,३४,५६७). devanagari=false keeps ASCII digits "
+             "for group/money.", {"value": S, "mode": S, "devanagari": B}, ["value"])
+    def nepali_format(value: str, mode: str = "group", devanagari: bool = True):
+        from . import nepali
+        try:
+            if mode == "digits":
+                return nepali.to_nepali_digits(value)
+            if mode == "ascii":
+                return nepali.to_ascii_digits(value)
+            dec = 2 if "." in nepali.to_ascii_digits(value).replace(",", "") else 0
+            if mode == "money":
+                return nepali.money(value, devanagari, dec)
+            g = nepali.group_lakh(value, dec)
+            return nepali.to_nepali_digits(g) if devanagari else g
+        except ValueError:
+            return f"ERROR: {value!r} is not a number."
 
     @reg.add("weather", "Current weather and a 3-day forecast for a city (Open-Meteo, no key needed).",
              {"city": S}, ["city"])

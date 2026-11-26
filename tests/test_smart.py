@@ -384,3 +384,24 @@ def test_text_to_image_refuses_self_portraits(env):
     for prompt in ("3D portrait of Mochi", "a self-portrait", "draw yourself in the snow", "Mochi the maid girl"):
         r = reg.call("comfy_txt2img", {"prompt": prompt}, policy)
         assert r.startswith("ERROR") and "draw_myself" in r, prompt
+
+
+def test_an_empty_reply_is_retried_once_without_tools(env):
+    """Some local models answer with nothing when tools are attached; one tool-free retry still gets an answer."""
+    agent, seen = make_agent(env, [("", []), ("Hello! How can I help?", [])])
+    assert agent.run("hi there") == "Hello! How can I help?"
+    assert "tools" in seen[0] and "tools" not in seen[1]
+    assert "empty_reply_retry" in env[1].audit_path.read_text()
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("नमस्ते मोचि! तपाईं को हो?", True),
+    ("मलाई आजको मिति भन्नुहोस्, कृपया", True),
+    ("मेरो नाम राम हो र म काठमाडौंमा बस्छु", True),
+    ("आप कैसे हैं? मैं ठीक हूँ", False),                      # Hindi: same script, other language
+    ("क्या आप मेरी मदद कर सकते हैं", False),
+    ("hello, what is the weather", False),
+    ("नमस्ते", False),                                          # a greeting both languages share: no guess
+])
+def test_nepali_is_told_apart_from_hindi(text, expected):
+    assert smart.wants_nepali(text) is expected

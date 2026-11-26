@@ -6,6 +6,7 @@ Anything here is only used when the original Windows-only call would not work. T
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -81,18 +82,31 @@ def open_default(target: str) -> None:
     subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
-def speak(text: str) -> tuple[bool, str]:
-    """Say text aloud. Returns (ok, error message)."""
+LANG_CODE = re.compile(r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})?$")
+
+
+def speak(text: str, language: str = "") -> tuple[bool, str]:
+    """Say text aloud, with a voice for `language` (ISO code like nl, fr, ja) when one is installed.
+    Returns (ok, error message)."""
+    language = language.strip()
+    if language and not LANG_CODE.match(language):
+        return False, f"{language!r} is not a language code (use e.g. nl, fr, de, es, ja)"
+    language = language.replace("_", "-")
     if IS_WINDOWS:
-        script = ("Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer;"
-                  " $s.Speak([Console]::In.ReadToEnd())")
+        pick = (f"try {{ $s.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::NotSet, "
+                f"[System.Speech.Synthesis.VoiceAge]::NotSet, 0, [System.Globalization.CultureInfo]::GetCultureInfo('{language}')) }} "
+                "catch {}; ") if language else ""
+        script = ("Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                  + pick + "$s.Speak([Console]::In.ReadToEnd())")
         r = subprocess.run(["powershell", "-NoProfile", "-Command", script], input=text, capture_output=True,
                            text=True, encoding="utf-8", errors="replace", timeout=180)
         return r.returncode == 0, r.stderr.strip()[:200]
     if shutil.which("spd-say"):
-        r = subprocess.run(["spd-say", "--wait", "--", text], capture_output=True, text=True, timeout=180)
+        r = subprocess.run(["spd-say", "--wait"] + (["-l", language.split("-")[0]] if language else []) + ["--", text],
+                           capture_output=True, text=True, timeout=180)
     elif shutil.which("espeak-ng"):
-        r = subprocess.run(["espeak-ng", "--stdin"], input=text, capture_output=True, text=True, timeout=180)
+        r = subprocess.run(["espeak-ng", "--stdin"] + (["-v", language] if language else []), input=text,
+                           capture_output=True, text=True, timeout=180)
     else:
         return False, "No text-to-speech found. Install speech-dispatcher (spd-say) or espeak-ng."
     return r.returncode == 0, r.stderr.strip()[:200]

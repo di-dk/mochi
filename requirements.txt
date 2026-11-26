@@ -18,4 +18,7 @@ python-docx>=1.2
 openpyxl>=3.1
 win11toast>=0.36; sys_platform == "win32"
 psutil>=7.0
+arabic-reshaper>=3.0         # Arabic and Hebrew in PDFs
+python-bidi>=0.6
+nepali-datetime==1.0.8.5     # Nepali (Bikram Sambat) calendar; MIT, no dependencies
 pywebview>=6.0; sys_platform == "win32"

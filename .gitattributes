@@ -6,3 +6,4 @@
 /mochi-window text eol=lf
 *.webp binary
 *.webm binary
+*.ttf binary

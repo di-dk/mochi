@@ -57,7 +57,7 @@ def all_skills(ws: Path) -> list[dict]:
     return out
 
 
-def skills_index(ws: Path, limit: int = 48) -> str:
+def skills_index(ws: Path, limit: int = 60) -> str:
     sk = all_skills(ws)[:limit]
     return "\n".join(f"- {s['name']}: {s['description']}" for s in sk)
 

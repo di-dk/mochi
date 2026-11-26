@@ -36,6 +36,9 @@ def add_auto_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
              "| tables |, ![](image.png)).", {"path": S, "markdown": S, "title": S}, ["path", "markdown"])
     def create_docx(path: str, markdown: str, title: str = ""):
         from docx import Document
+        from docx.oxml import OxmlElement
+
+        from . import fonts
         from docx.shared import Inches
         p = out_path(path, ".docx")
         doc = Document()
@@ -85,6 +88,20 @@ def add_auto_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
             elif s:
                 runs(doc.add_paragraph(), s)
             i += 1
+
+        def mark_rtl(par):                       # Arabic / Hebrew paragraphs read right to left in Word
+            if not fonts.is_rtl(par.text):
+                return
+            par._p.get_or_add_pPr().append(OxmlElement("w:bidi"))
+            for r in par.runs:
+                r._r.get_or_add_rPr().append(OxmlElement("w:rtl"))
+        for par in doc.paragraphs:
+            mark_rtl(par)
+        for tbl in doc.tables:
+            for row in tbl.rows:
+                for cell in row.cells:
+                    for par in cell.paragraphs:
+                        mark_rtl(par)
         doc.save(p)
         return f"Created {p} ({p.stat().st_size} bytes)"
 
