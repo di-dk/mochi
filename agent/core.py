@@ -17,6 +17,7 @@ import httpx
 import yaml
 from openai import OpenAI
 
+from . import skillscan
 from .platform_compat import IS_WINDOWS, OS_NAME
 from .policy import Policy
 from .registry import Registry
@@ -464,7 +465,7 @@ class Agent:
         if self._auto_tools():
             reg.enabled_groups |= smart.groups_for_text(user_text)
         if (self.cfg.get("skills") or {}).get("auto_match", True):
-            skills = all_skills(self.policy.workspace)
+            skills = [s for s in all_skills(self.policy.workspace) if skillscan.trust(self.cfg, s)[0]]
             skill = smart.match_skill(user_text, skills)
             if not skill and smart.wants_learning(user_text):      # "learn how to ...": hand her the learning recipe
                 skill = next((s for s in skills if s["name"] == "learn-new-skill"), None)

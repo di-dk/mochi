@@ -3,11 +3,14 @@
 # and adds `mochi` / `mochi-window` to ~/.local/bin plus an app-menu entry.
 #   ./setup.sh            # full setup
 #   ./setup.sh --no-browser   # skip the Chromium download (Mochi's browser_* tools will not work)
+#   ./setup.sh --no-skillspector   # skip NVIDIA SkillSpector (then she cannot import skills: every skill must be scanned)
 #   ./setup.sh --uninstall    # remove the ~/.local/bin links and the app-menu entry (keeps this folder)
 set -euo pipefail
 cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 here="$PWD"
 bin="$HOME/.local/bin"; apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+NO_BROWSER=0; NO_SS=0
+for a in "$@"; do case "$a" in --no-browser) NO_BROWSER=1;; --no-skillspector) NO_SS=1;; esac; done
 
 if [[ "${1:-}" == "--uninstall" ]]; then
   rm -f "$bin/mochi" "$bin/mochi-window" "$apps/mochi.desktop"
@@ -33,7 +36,25 @@ if [[ ${#venv_args[@]} -eq 0 ]]; then
 fi
 .venv/bin/python -m pip install --upgrade pip -q
 .venv/bin/python -m pip install -r requirements.txt -q
-if [[ "${1:-}" != "--no-browser" ]]; then .venv/bin/python -m playwright install chromium; fi
+if [[ $NO_BROWSER -eq 0 ]]; then .venv/bin/python -m playwright install chromium; fi
+
+# NVIDIA SkillSpector (Apache-2.0) scans every skill BEFORE she installs it. It brings many dependencies, so it gets its
+# own virtual environment in .skillspector/ (it needs Python 3.12 or 3.13).
+if [[ $NO_SS -eq 0 ]]; then
+  sp=""
+  for c in python3.13 python3.12; do if command -v "$c" >/dev/null; then sp="$c"; break; fi; done
+  if [[ -z "$sp" ]]; then
+    echo "Note: SkillSpector needs Python 3.12 or 3.13, so she cannot import skills until it is installed (see the README)."
+  else
+    [[ -d .skillspector ]] || "$sp" -m venv .skillspector
+    .skillspector/bin/python -m pip install --upgrade pip -q
+    if .skillspector/bin/python -m pip install -q "skillspector==2.13.7"; then
+      echo "SkillSpector installed: $(.skillspector/bin/skillspector --version)"
+    else
+      echo "Note: could not install SkillSpector; she cannot import skills until it is installed."
+    fi
+  fi
+fi
 
 mkdir -p workspace logs
 [[ -f config.local.yaml ]] || cp config.local.example.yaml config.local.yaml

@@ -119,9 +119,10 @@ it directly: "you have no skill for this, learn how to get the ISS position your
 `owner/repo` or github.com URL) and `import_skill` copies one into her skills. Because a skill from a repository is
 someone else's text that will steer her:
 
+- **every skill is scanned first** with NVIDIA SkillSpector (see below), before you are even asked;
 - **you approve every import**: it cannot be auto-allowed, set to "always", or done in an unattended run, and the
-  approval shows the source, the size and warnings for risky content (piping downloads into a shell, `sudo`,
-  credential files, "ignore previous instructions", skipping approvals);
+  approval shows the source, the size, the scan result and warnings for risky content (piping downloads into a shell,
+  `sudo`, credential files, "ignore previous instructions", skipping approvals);
 - only text is copied (no binaries, nothing large, nothing outside the skill's own folder), and scripts are stored as
   plain files: running one still goes through the normal shell / Python approval;
 - the skill is marked as imported, with its source link, and never overrides her safety rules.
@@ -129,6 +130,32 @@ someone else's text that will steer her:
 For ComfyUI she can discover what is installed (`comfy_list_models kind=all`) and look up nodes (`comfy_node_info`),
 edit images and animate them from ready templates in `workflows/`, or build and save new workflows herself (skills
 `comfy-image`, `comfy-edit-image`, `comfy-animate-image`, `comfy-new-workflow`).
+
+## Every skill is scanned before it is installed (NVIDIA SkillSpector)
+
+Skills are instructions plus scripts that run with your trust, and public ones are not always safe. So she never
+installs or trusts one without checking it with [NVIDIA SkillSpector](https://github.com/NVIDIA/SkillSpector) (Apache-2.0,
+71 vulnerability patterns: prompt injection, data theft, privilege escalation, supply chain and more). `setup.sh` /
+`setup.ps1` install it into its own environment, `.skillspector/` (it needs Python 3.12 or 3.13).
+
+- **`import_skill`** fetches the skill into a throw-away folder and scans it **before** asking you or writing anything.
+  Verdict `DO NOT INSTALL` (score 51+): refused outright, no question asked and no way for her to override it.
+  `CAUTION` (21 to 50) or `SAFE`: you are asked, with the score and the findings shown.
+- **Fail closed**: if the scanner is missing, crashes, times out or could not inspect a script, the skill is **not**
+  installed (`skillspector.require: true`). Partly inspected documentation is only noted.
+- **Tamper-proof**: the scan result and a fingerprint of the skill and its files are stored with it. If anything changes
+  afterwards, or an imported skill has no scan, she will not read or follow it.
+- **Her own skills** (from web research) are scanned before `save_skill` writes them, and refused if they are dangerous.
+- **`scan_skill`** checks any skill without installing it: a saved one, a workspace folder or a GitHub skill.
+- **Deeper review (optional)**: `deep=true` (or `skillspector.llm: true`) also runs SkillSpector's LLM stage on your local
+  Ollama model (nothing leaves the PC, 1 to 2 minutes). It is advisory only: small local models raise false alarms
+  (it called a harmless skill dangerous in testing), so it can never block or approve by itself.
+- It is strict: in testing, Anthropic's `docx` skill scored 64/100 and was refused (it runs `rm` and chains shell
+  commands), while `pdf` scored 7 (`CAUTION`). If you accept that risk for skills you trust, set
+  `skillspector.on_danger: ask` in `config.local.yaml`: then *you* are asked, with a warning, instead of it being refused.
+  She can never make that choice.
+
+A scan lowers the risk, it does not remove it: static analysis can miss things. Skills you do not need, you should not install.
 
 ## Her moods
 

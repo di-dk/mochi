@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File .\setup.ps1             # full setup
 #   powershell -ExecutionPolicy Bypass -File .\setup.ps1 -PathOnly   # only add `mochi` to PATH
 #   powershell -ExecutionPolicy Bypass -File .\setup.ps1 -RemovePath # undo the PATH change
-param([switch]$PathOnly, [switch]$RemovePath, [switch]$Yes)
+param([switch]$PathOnly, [switch]$RemovePath, [switch]$Yes, [switch]$NoSkillSpector)
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
@@ -59,6 +59,20 @@ if (-not (Test-Path .venv)) {
 .\.venv\Scripts\python.exe -m pip install --upgrade pip -q
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt -q
 .\.venv\Scripts\python.exe -m playwright install chromium
+
+# 2b. NVIDIA SkillSpector scans every skill BEFORE she installs it. It has many dependencies, so it gets its own venv
+# (.skillspector, Python 3.12 or 3.13). Skip with -NoSkillSpector (then she cannot import skills).
+if (-not $NoSkillSpector) {
+  $spy = $null
+  foreach ($v in '3.13', '3.12') { try { & py "-$v" -c "import sys" 2>$null; if ($LASTEXITCODE -eq 0) { $spy = "py -$v"; break } } catch {} }
+  if (-not $spy) { Write-Host "SkillSpector needs Python 3.12 or 3.13, so she cannot import skills until it is installed (see the README)." -ForegroundColor Yellow }
+  else {
+    if (-not (Test-Path .skillspector)) { & py ($spy -split ' ')[1] -m venv .skillspector }
+    .\.skillspector\Scripts\python.exe -m pip install --upgrade pip -q
+    .\.skillspector\Scripts\python.exe -m pip install -q "skillspector==2.13.7"
+    if ($LASTEXITCODE -eq 0) { Write-Host ("SkillSpector installed: " + (& .\.skillspector\Scripts\skillspector.exe --version)) } else { Write-Host "Could not install SkillSpector; she cannot import skills until it is installed." -ForegroundColor Yellow }
+  }
+}
 
 # 3. Folders + personal config
 New-Item -ItemType Directory -Force workspace, logs | Out-Null

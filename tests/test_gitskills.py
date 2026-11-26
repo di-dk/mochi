@@ -49,8 +49,15 @@ class Resp:
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    cfg = copy.deepcopy(load_config())
+    import stat
+    import sys
+    from agent.core import ROOT
+    cfg = copy.deepcopy(load_config(ROOT / "config.yaml"))
     cfg["sandbox"]["workspace"] = str(tmp_path / "ws")
+    fake = tmp_path / "skillspector"                       # a stand-in scanner: these tests are about the importer
+    fake.write_text(f"#!{sys.executable}\n" + (ROOT / "tests" / "fakescan.py").read_text())
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    cfg["skillspector"] = {"enabled": True, "require": True, "path": str(fake), "timeout_s": 30}
     asked = []
     answers = []
 

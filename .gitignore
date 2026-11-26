@@ -20,3 +20,6 @@ tasks/
 
 # Mochi browser profile (cookies/logins)
 .browser-profile/
+
+# NVIDIA SkillSpector scanner (made by setup)
+.skillspector/

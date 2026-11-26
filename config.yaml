@@ -23,6 +23,14 @@ llm:
                                           # (e.g. MOCHI_API_KEY). Empty = no key (LM Studio / Ollama). Never put
                                           # the key itself in a config file.
 
+skillspector:                            # NVIDIA SkillSpector scans every skill BEFORE it is installed or trusted
+  enabled: true
+  require: true                          # fail closed: if a skill cannot be scanned (scanner missing, crash, incomplete) it is NOT installed
+  on_danger: block                       # block | ask: a DO_NOT_INSTALL verdict is refused outright; "ask" lets YOU decide (never her)
+  llm: false                             # also run its LLM stage on the local Ollama model (deeper, slower; nothing leaves the PC)
+  path: ""                               # empty = .skillspector/ made by setup, else `skillspector` on PATH
+  timeout_s: 300
+
 tools:
   groups: auto                            # auto = send the model only core tools + the groups a task needs
                                           # (faster, more focused); all = always send every tool
