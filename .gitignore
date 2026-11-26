@@ -24,3 +24,7 @@ tasks/
 # NVIDIA SkillSpector scanner (made by setup)
 .skillspector/
 models/
+pet/raw/
+pet/raw_anim/
+pet/sprites/
+pet/anim/

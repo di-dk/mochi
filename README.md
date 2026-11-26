@@ -220,6 +220,24 @@ an opt-in test against your real ComfyUI: `MOCHI_LIVE_COMFY=1 pytest tests/test_
   still asks before deleting, importing a skill, or typing into sensitive windows (terminals, password prompts), and scheduled
   unattended runs never get auto mode. Add more categories to keep asking about with `approvals.auto_mode_keep_asking`.
 
+## Pet mode: a little chibi Mochi on your desktop (Linux, optional extra)
+
+`./mochi --pet` puts a small animated chibi Mochi on top of everything on your screen. The normal chat window is unchanged: pet mode is
+an extra, and the chat window has a 🐾 Pet button to bring her back from it.
+
+- **She lives on your screen:** she wanders along the screen, sits on her bed or armchair and naps when you leave her alone, reads a book, has tea.
+- **Drag and poke:** drag her anywhere (the spot you grab stays under the mouse; she reacts differently if you grab her head, body or feet) and
+  she stays where you drop her. A single click pokes her (headpat, tickles, "my feet!"). Double-click, or right-click > Type to her, to talk.
+- **She talks back in a speech bubble.** Approval questions appear there too, with Yes / Always / No buttons, and a button opens the full chat.
+- **Right-click menu:** stay where I put her / wander, her voice, the microphone (hands-free talking), auto mode, size (S M L XL), take a nap,
+  open the full chat, hide her, quit.
+- **Set-up:** pet mode needs the GTK4 layer-shell library. `pet/install_layer_shell.sh` builds it into `~/.local` (its first lines tell you the one
+  `sudo apt install` it needs). Her pictures and animations are not in git (about 25 MB): download `mochi-pet-animations.zip` from the release and
+  unzip it in the Mochi folder (it creates `pet/sprites` and `pet/anim`), or make your own with ComfyUI: `python -m pet.make_sprites` then
+  `python -m pet.make_anim` (stop Ollama first; each clip takes about half a minute). Without them she is drawn with a simple placeholder.
+- **Settings** are in `~/.config/mochi-pet.json` (`scale`, `walk`, `voice`, `sleep_after` in seconds, `emoji`). If something misbehaves, `logs/pet-debug.log`
+  records what a drag does.
+
 ## Which version is running
 
 The chat window shows it under her name (hover for details), the terminal banner shows it, and `mochi --version` prints it. A

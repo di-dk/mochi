@@ -206,3 +206,24 @@ def test_voice_text_cleaning_and_blend_settings():
 def test_her_name_is_said_moh_chee():
     from agent import voice
     assert voice.speakable("Hi, I'm Mochi! Mochi's here, and MOCHI too.") == "Hi, I'm Mohchee! Mohchee's here, and Mohchee too."
+
+
+def test_split_sentences_streaming():
+    from agent.voice import split_sentences
+    assert split_sentences("Hello there. I am Mochi! Next") == (["Hello there. ", "I am Mochi! "], "Next")
+    assert split_sentences("No end yet") == ([], "No end yet")
+
+
+def test_pet_sprites_make_every_state_both_directions():
+    from pet import sprites
+    imgs = sprites.load_images(sprites.DIR / "does-not-exist")
+    for st in sprites.STATES:
+        a, b = sprites.frames(imgs, st, 1), sprites.frames(imgs, st, -1)
+        assert len(a) == len(b) >= 8 and a[0].size == (sprites.CANVAS_W, sprites.CANVAS_H)
+
+
+def test_pet_clip_only_states_fall_back_and_zones_exist():
+    from pet import sprites
+    imgs = sprites.load_images(sprites.DIR / "does-not-exist")
+    for st in sprites.FALLBACK:
+        assert len(sprites.frames(imgs, st, 1, {})) >= 8

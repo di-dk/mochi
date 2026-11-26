@@ -4,4 +4,11 @@
 here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+# Pet mode needs gtk4-layer-shell (built into ~/.local, see README). It must be loaded before Wayland, so it is preloaded here.
+ls_lib="$HOME/.local/lib/x86_64-linux-gnu"
+if [ -f "$ls_lib/libgtk4-layer-shell.so" ]; then
+  export LD_LIBRARY_PATH="$ls_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export GI_TYPELIB_PATH="$ls_lib/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
+  case "$*" in *--gui*|*--pet*) export LD_PRELOAD="$ls_lib/libgtk4-layer-shell.so${LD_PRELOAD:+:$LD_PRELOAD}";; esac
+fi
 exec "$here/.venv/bin/python" -m agent.cli "$@"

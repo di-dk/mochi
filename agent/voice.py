@@ -81,6 +81,20 @@ def _pcm16k(wav: bytes):
     return x
 
 
+_SENT = re.compile(r"^(.*?(?:[.!?。！？][\"')\]]*\s|\n))", re.S)
+
+
+def split_sentences(buf: str) -> tuple[list[str], str]:
+    """Complete sentences at the start of a growing text, and the unfinished rest."""
+    out = []
+    while True:
+        m = _SENT.match(buf)
+        if not m:
+            return out, buf
+        out.append(m.group(1))
+        buf = buf[len(m.group(1)):]
+
+
 class Voice:
     def __init__(self, cfg: dict):
         self.s = settings(cfg)

@@ -78,6 +78,7 @@ class GuiApp:
         self.transcript: list[dict] = []
         self._approvals: dict[str, dict] = {}
         self._lock = threading.Lock()
+        self.pet_hook = None                    # set by pet mode (pet/mochi_pet.py) when the desktop pet can run
 
     # ------------------------------------------------------------------ start-up
     def start_agent(self) -> None:
@@ -324,6 +325,12 @@ class GuiApp:
             return {"ok": False, "why": getattr(self, "_voice_err", "")}
         v.warm()
         return {"ok": True}
+
+    def pet(self, cmd: str) -> str:
+        if self.pet_hook is None:
+            return "Pet mode is not set up on this PC yet (see the README, Pet mode)."
+        self.pet_hook("show" if cmd == "show" else "hide")
+        return "ok"
 
     def auto_mode(self) -> bool:
         return bool(self.agent and getattr(self.agent.policy, "auto_mode", False))
@@ -635,6 +642,8 @@ def make_handler(app: GuiApp, host_header: str):
                 self._json({"status": "stopping"})
             elif path == "/approve":
                 self._json({"ok": app.answer(str(body.get("id", "")), str(body.get("answer", "")))})
+            elif path == "/pet":
+                self._json({"status": app.pet(str(body.get("cmd", "show")))})
             elif path == "/voice/status":
                 self._json(app.voice_status())
             elif path == "/auto":
@@ -666,10 +675,28 @@ def serve(app: GuiApp) -> tuple[ThreadingHTTPServer, str]:
     return srv, f"http://{host}/?t={app.token}"
 
 
-def run_gui(cfg: dict) -> int:
+def run_gui(cfg: dict, pet: bool = False) -> int:
     app = GuiApp(cfg)
     srv, url = serve(app)
     app.start_agent()
+    try:                                    # pet mode (Linux): this thread runs the desktop pet; the chat opens in the browser
+        from pet import mochi_pet
+    except Exception as e:  # noqa: BLE001 - no GTK / layer-shell: the normal chat window still works
+        mochi_pet = None
+        if pet:
+            print(f"Pet mode is not available here ({type(e).__name__}: {e}). See the README, Pet mode.")
+    if mochi_pet is not None:
+        import webbrowser
+        if not pet:
+            webbrowser.open(url)
+        print(f"Chat: {url}")
+        try:
+            mochi_pet.run(app, url, show=pet)
+        except KeyboardInterrupt:
+            pass
+        app.stop()
+        srv.shutdown()
+        return 0
     try:
         import webview
     except ImportError:

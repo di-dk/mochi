@@ -159,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model", help="use this LM Studio model for this run only (see /models)")
     ap.add_argument("-f", "--file", action="append", default=[], metavar="PATH",
                     help="attach a file (photo, video, PDF, Word, Excel, text...); repeat for several")
+    ap.add_argument("--pet", action="store_true", help="desktop pet: a small animated Mochi on top of your screen")
     ap.add_argument("--gui", action="store_true", help="open Mochi in her own chat window")
     ap.add_argument("--version", action="store_true", help="show which version of Mochi this is")
     ap.add_argument("--bench", nargs="*", metavar="NAME",
@@ -172,9 +173,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.model:
         cfg["llm"]["model"] = args.model
     task = Path(args.task_file).read_text(encoding="utf-8") if args.task_file else " ".join(args.task)
-    if args.gui:
+    if args.gui or args.pet:
         from .gui import run_gui
-        return run_gui(cfg)
+        return run_gui(cfg, pet=args.pet)
     if args.bench is not None:
         from .bench import run_bench
         return run_bench(cfg, args.bench, console)

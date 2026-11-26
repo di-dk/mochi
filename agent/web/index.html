@@ -199,6 +199,7 @@ textarea:focus{border-color:var(--pink)}
     <button id="burger" title="Chats">☰</button>
     <div class="t"><b id="ctitle">New chat</b><span id="sub">starting…</span></div>
     <div class="sp"></div>
+    <button id="petbtn" title="Pet mode: a small animated Mochi on top of your screen">🐾 Pet</button>
     <button id="voicebtn" title="She reads her replies out loud">🔊 Voice: off</button>
     <button id="talkbtn" title="Talk to her: speak and she answers in her voice (hands-free)">🎙 Talk</button>
     <button id="autobtn" title="Auto mode: she works on her own without asking about each action (deleting and sensitive things still ask)">⚡ Auto: off</button>
@@ -667,6 +668,7 @@ function drawThemes(){
     box.appendChild(b);
   });
 }
+$("petbtn").onclick=async()=>{ try{ const r=await post("/pet",{cmd:"show"}); if(r.status!=="ok") showBanner(r.status); }catch(e){ showBanner("Could not start pet mode."); } };
 let autoOn=false;
 function showAuto(on){ autoOn=!!on; const b=$("autobtn"); b.textContent=on?"⚡ Auto: ON":"⚡ Auto: off";
   b.style.background=on?"var(--pink)":""; b.style.color=on?"#fff":""; }
