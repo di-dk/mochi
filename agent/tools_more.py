@@ -125,7 +125,7 @@ def add_more_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
 
     @reg.add("nepali_date",
              "Convert a date between the Gregorian (AD) and the Nepali Bikram Sambat (BS) calendar; empty = today. "
-             "Give 2026-11-26 (AD) or 2083-08-10 BS (Devanagari digits work too). Returns both calendars with the "
+             "Give YYYY-MM-DD (AD) or YYYY-MM-DD BS (Devanagari digits work too); leave it empty for today. Returns both calendars with the "
              "weekday and the month in Nepali and English. Use it for EVERY Nepali date: month lengths change every "
              "year, so never work out a BS date yourself. Years BS 1975-2100.", {"date": S})
     def nepali_date(date: str = ""):
@@ -140,8 +140,8 @@ def add_more_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
                 f"Month: {r['month_ne']} ({r['month_en']}), weekday: {r['weekday_ne']} ({r['weekday_en']})")
 
     @reg.add("nepali_format",
-             "Format numbers the Nepali way. mode: 'digits' (1234 -> १२३४), 'ascii' (१२३४ -> 1234), 'group' (1234567 -> "
-             "12,34,567: lakh and crore grouping) or 'money' (-> रु. १२,३४,५६७). devanagari=false keeps ASCII digits "
+             "Format a number the Nepali way. mode: 'digits' (ASCII to Devanagari digits), 'ascii' (Devanagari to ASCII "
+             "digits), 'group' (lakh and crore grouping) or 'money' (rupees with that grouping). devanagari=false keeps ASCII digits "
              "for group/money.", {"value": S, "mode": S, "devanagari": B}, ["value"])
     def nepali_format(value: str, mode: str = "group", devanagari: bool = True):
         from . import nepali

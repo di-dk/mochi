@@ -6,8 +6,8 @@ Use for "change her expression", "make the background night", "remove the hat", 
 2. comfy_run_workflow template=qwen-image-edit,
    images={"7.image": "uploads/photo.png"},
    set={"9.prompt": "<instruction>", "12.seed": 7, "14.filename_prefix": "edit"}. About 25-30 seconds.
-3. Write the instruction like this: say what to change, then what must stay: "Change only her facial expression to a
-   big smile. Keep the same character, hair, outfit, pose, background, colors and art style."
+3. Write the instruction in two parts: "Change <what the user asked>." then "Keep <everything else that must stay>."
+   Name the things you can actually see in the picture.
    One change per run. Name things you can see. For text in images, give the exact words.
 4. view_image the result and compare with the original. Wrong or too much changed: tighten "keep ..." and change the
    seed. Stop after 3 tries and tell the user what it could not do.

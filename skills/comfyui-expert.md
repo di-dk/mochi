@@ -9,9 +9,9 @@ Use for ANY picture, video, animation or image-edit request. Never guess what is
    - "change / edit this picture": comfy_run_workflow template=qwen-image-edit (see comfy-edit-image).
    - "draw yourself": draw_myself. Music, sound, upscaling: the capability list says what is still missing; build it
      with comfy-new-workflow, or tell the user it is not set up.
-3. Video prompt = ONE vivid sentence: subject + action + place + light or camera. "A cute orange cat dancing on its hind
-   legs in a cozy living room, smooth motion, warm light." Real motion verbs (dancing, walking, waving). No text or
-   logos in the scene. Default 2 seconds, square. More seconds (max 5) or other shapes (landscape, portrait) only if asked.
+3. Video prompt = ONE vivid sentence about what the USER asked for: the subject they named + what it does + where +
+   light or camera. Use their subject, never another one, and never a sentence from these instructions. Real motion
+   verbs. No text or logos in the scene. Default 2 seconds, square. More seconds (max 5) or other shapes (landscape, portrait) only if asked.
    Times: about 30 to 90 seconds. One heavy job at a time; do not start a second one while one runs.
 4. The GPU is shared with your own language model: it is unloaded automatically before a job and loads again by itself.
 5. When something fails, read the message: it says what to do.

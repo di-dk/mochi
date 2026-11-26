@@ -228,7 +228,7 @@ def add_auto_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
     @reg.add("draw_myself",
              "Draw or edit a picture of YOURSELF (Mochi) so that it really looks like you. ALWAYS use this when asked "
              "to draw, show, imagine or change yourself; never comfy_txt2img (it does not know your face). scene: what "
-             "should change or happen, e.g. 'wearing a cozy winter coat and scarf, standing in the snow'. "
+             "should change or happen: the outfit, place or activity the USER asked for, in your own short words. "
              "closeup=true makes a face close-up (set expression: relaxed|happy|excited|thinking|working|asking|"
              "worried|sad|sleepy). Saves into comfy/ and shows it in the chat.",
              {"scene": S, "closeup": B, "expression": S, "seed": I}, ["scene"])
@@ -292,8 +292,8 @@ def add_auto_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
                 f"\n[[shared:{rel}|{cap}]]")
 
     @reg.add("find_my_files",
-             "Find files by what they are, a name word and how recent they are, newest first. Use it for 'show me "
-             "the image you made', 'find my last video', 'where is that PDF'. kind: image|video|audio|pdf|doc|"
+             "Find files by what they are, a name word and how recent they are, newest first. Use it for requests "
+             "to show a picture she made, find the latest video or locate a PDF. kind: image|video|audio|pdf|doc|"
              "archive|any. where: 'mine' (default: her workspace except the user's uploads), 'uploads' (files the "
              "user gave her), 'all' (whole workspace) or a folder path. days: only files changed in the last N "
              "days (0 = any). share=true also shows up to 6 of the results in the chat (thumbnail + path).",

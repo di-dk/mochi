@@ -9,7 +9,7 @@ Use for "animate this picture", "make her blink and smile", "make a looping avat
    set={"10.text": "<motion>", "12.width": 480, "12.height": 480, "12.length": 33, "13.noise_seed": 5, "14.noise_seed": 5}.
    33 frames = 2 seconds at 16 fps and takes about 30 seconds. Longer (49-81 frames) or bigger (640+) is slower
    and may run out of VRAM: only do it if asked.
-3. Describe MOTION, not the picture: "She blinks slowly, smiles, hair sways gently, head tilts slightly."
+3. Describe MOTION, not the picture: who or what moves and how (use the real subject of the picture).
    Add "no camera movement, same character" to keep the face stable. Small motions work best; big ones distort.
 4. The result is a .webm in comfy/. Check it: media_info, and view_image a frame via media_convert if needed.
    Wrong result: simplify the motion, change the seed, retry at most 3 times.

@@ -7,7 +7,7 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
-__version__ = "0.13.0"
+__version__ = "0.13.1"
 ROOT = Path(__file__).resolve().parent.parent
 
 

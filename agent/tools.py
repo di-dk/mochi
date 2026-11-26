@@ -260,7 +260,7 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
             pyautogui.press("enter")
         return "Typed."
 
-    @reg.add("hotkey", "Press a key combination, e.g. ['ctrl','s']. Asks the user first.",
+    @reg.add("hotkey", "Press the key combination the user asked for (a list of key names). Asks the user first.",
              {"keys": {"type": "array", "items": S}}, ["keys"])
     def hotkey(keys: list):
         import pyautogui
@@ -376,7 +376,7 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         return "\n".join(sorted({a["Name"] for a in apps})[:200]) or "No matching apps."
 
     @reg.add("launch_app",
-             "Start an app by its name as shown in the Start menu (e.g. 'Calculator', 'Notepad', 'Spotify'), or by exe "
+             "Start an app by its name as shown in the Start menu, or by exe "
              "path / command, with optional arguments. Then wait a moment and use list_windows / app_inspect.",
              {"program": S, "args": {"type": "array", "items": S}}, ["program"])
     def launch_app(program: str, args: list | None = None):
@@ -544,6 +544,8 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
     def comfy_txt2img(prompt: str, negative: str = "lowres, blurry, watermark, text", checkpoint: str = "",
                       width: int = 1024, height: int = 1024, steps: int = 25, guidance: float = 6.0, seed: int = -1,
                       _self: bool = False):
+        if not _self and (problem := off_topic(prompt)):
+            return problem
         if SELF_PROMPT.search(prompt) and not _self:
             return ("ERROR: this is a picture of YOU. comfy_txt2img does not know your face and will not look like "
                     "you. Use draw_myself(scene=...) instead; it redraws you from your own portrait.")
@@ -615,8 +617,8 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
     @reg.add("comfy_run_workflow",
              "Run a ComfyUI workflow. Use template='qwen-image-edit' (edit an image with an instruction) or "
              "template='wan-image-to-video' (animate an image), or path= a workflow saved in API format. "
-             "'set' overrides inputs, e.g. {\"9.prompt\": \"...\", \"12.seed\": 42}. 'images' uploads workspace images "
-             "into ComfyUI and sets the field, e.g. {\"7.image\": \"comfy/cat.png\"}. Outputs are copied into "
+             "'set' overrides inputs, e.g. {\"<node>.<field>\": <value>}. 'images' uploads workspace images "
+             "into ComfyUI and sets the field, e.g. {\"7.image\": \"<workspace path of the picture>\"}. Outputs are copied into "
              "workspace/comfy. Read the skill comfy-edit-image or comfy-animate-image first.",
              {"template": S, "path": S, "set": {"type": "object"}, "images": {"type": "object"}})
     def comfy_run_workflow(template: str = "", path: str = "", set: dict | None = None,  # noqa: A002
@@ -759,16 +761,39 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
                 continue
         return "ComfyUI was started but is not answering yet (loading takes a while). Wait a minute and call comfy_status; see logs/comfyui.log."
 
+    GENERIC = {"make", "create", "generate", "video", "clip", "animation", "animate", "movie", "film", "image", "picture",
+               "photo", "draw", "show", "want", "need", "give", "produce", "render", "short", "pic", "gif"}
+
+    def off_topic(prompt: str) -> str:
+        """The prompt must be about what the USER asked for. Returns an error the first time a prompt shares none of the
+        subject words of the request (a model that pastes some other subject); an identical repeat is let through, since
+        the user may have said 'that one'. Requests in other languages or without a clear subject are not judged."""
+        from . import smart
+        req = getattr(reg, "user_request", "") or ""
+        if not req or not req.isascii() or not prompt.isascii():
+            return ""
+        subject = smart.words(req) - {smart._stem(g) for g in GENERIC} - GENERIC
+        if len(subject) < 1 or subject & smart.words(prompt):
+            return ""
+        seen = getattr(reg, "off_topic_seen", None)
+        if seen is None or prompt in seen:
+            return ""
+        seen.add(prompt)
+        return (f"ERROR: your prompt has nothing to do with what the user asked for. They asked: {req.strip()[:200]!r}. "
+                "Write the prompt about THEIR subject, in your own words, and call again.")
+
     SIZES = {"square": (480, 480), "landscape": (640, 368), "portrait": (368, 640)}
 
     @reg.add("comfy_video",
-             "Make a short video with ComfyUI (Wan 2.2). Use this for ANY 'make a video / animation / clip' request. "
-             "prompt: ONE vivid sentence: subject + action + place + light or camera, e.g. 'A cute orange cat dancing on its "
-             "hind legs in a cozy living room, smooth motion, warm light.' With image= (a picture in your workspace) it "
+             "Make a short video with ComfyUI (Wan 2.2). Use this for ANY request to make a video, animation or clip. "
+             "prompt: ONE vivid sentence built from what the USER asked for: the subject they named + what it does + where + "
+             "light or camera. Never reuse words that are not in their request. With image= (a picture in your workspace) it "
              "animates that picture and the prompt describes only the MOTION. seconds 1-5 (default 2), size "
              "square|landscape|portrait. Takes 30-90 seconds. The video is saved in comfy/ and shown in the chat.",
              {"prompt": S, "image": S, "seconds": N, "size": S, "seed": I}, ["prompt"])
     def comfy_video(prompt: str, image: str = "", seconds: float = 2, size: str = "square", seed: int = -1):
+        if (problem := off_topic(prompt)):
+            return problem
         w, h = SIZES.get(size.lower(), SIZES["square"])
         frames = 16 * max(1, min(5, round(float(seconds or 2)))) + 1          # 16 frames per second
         seed = random.randint(1, 2**31) if seed < 0 else seed

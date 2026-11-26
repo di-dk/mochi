@@ -385,7 +385,7 @@ def add_linux_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
         return "\n".join(names[:200]) or "No matching apps."
 
     @reg.add("launch_app",
-             "Start an app by its name as shown in the app menu (e.g. 'Calculator', 'Files', 'Firefox'), or by "
+             "Start an app by its name as shown in the app menu, or by "
              "program path / command, with optional arguments. Then wait a moment and use list_windows / app_inspect.",
              {"program": S, "args": {"type": "array", "items": S}}, ["program"])
     def launch_app(program: str, args: list | None = None):
@@ -704,7 +704,7 @@ def add_linux_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
                 ui.combo([KEYS["enter"]])
             return "Typed."
 
-        @reg.add("hotkey", "Press a key combination, e.g. ['ctrl','s']. Asks the user first.",
+        @reg.add("hotkey", "Press the key combination the user asked for (a list of key names). Asks the user first.",
                  {"keys": {"type": "array", "items": S}}, ["keys"])
         def hotkey(keys: list):
             names = [k.lower() for k in keys]

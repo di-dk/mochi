@@ -531,6 +531,7 @@ class Agent:
             self.messages.append(self._image_message(images))
         self.policy.audit("user", text=user_text, files=[str(a) for a in attachments or []])
         llm, reg = self.cfg["llm"], self.registry
+        reg.user_request, reg.off_topic_seen = user_text, set()          # creative tools check their prompt against this
         agent_cfg = self.cfg.get("agent") or {}
         nudges = tool_count = 0
         called: set[str] = set()          # tools used in this request

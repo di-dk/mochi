@@ -5,7 +5,7 @@ description: Generate good images with the local ComfyUI (checkpoint choice, siz
 2. comfy_list_models kind=all. Image checkpoints are the ones NOT marked audio. If none exist, say so: Qwen/Wan models
    cannot make a picture from text here, only edit or animate one (see comfy-edit-image, comfy-animate-image).
 3. comfy_txt2img with the default checkpoint unless asked otherwise. Anime/illustration models (nova3DCGXL, Illustrious
-   style) like tag prompts: "1girl, pink hair, maid dress, holding cake, masterpiece, best quality, detailed".
+   style) like tag prompts: the subject tags the user asked for, then style tags, then "masterpiece, best quality".
    Realistic models like sentences. Put the subject first, then style, lighting, background.
 4. Sizes (SDXL): 1024x1024 square, 832x1216 portrait, 1216x832 landscape. 25-30 steps, guidance 5-7.
    Quick drafts: 768x768, 20 steps.

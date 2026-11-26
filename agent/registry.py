@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import traceback
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -10,6 +11,26 @@ from .policy import Denied
 from .smart import group_of
 
 MAX_RESULT_CHARS = 12000
+QUOTED = re.compile(r"""(?<![\w])['"]([^'"\n]{25,}?)['"](?![\w])""")      # real quotes, not apostrophes in words
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^\w]+", " ", s.lower()).strip()
+
+
+def parroted(tool, args: dict) -> str:
+    """A small model sometimes pastes the example sentence from a tool's description into the tool call instead of writing
+    the argument from the user's request. Returns that example when an argument contains one (six or more words), else ''."""
+    examples = [_norm(q) for q in QUOTED.findall(tool.description) if len(q.split()) >= 6 and "<" not in q]
+    if not examples:
+        return ""
+    for v in args.values():
+        if isinstance(v, str):
+            nv = _norm(v)
+            for ex in examples:
+                if ex and ex in nv:
+                    return ex
+    return ""
 
 
 @dataclass
@@ -68,6 +89,10 @@ class Registry:
         except json.JSONDecodeError as e:
             return f"ERROR: tool arguments were not valid JSON ({e}). Retry with valid JSON."
         policy.audit("tool_call", tool=name, args=args)
+        if parroted(tool, args):
+            policy.audit("deny", op="parroted_example", tool=name)
+            return ("ERROR: that argument is the example text from my own instructions, not something the user asked for. "
+                    "Write it again from the USER's actual request (their subject, their words).")
         if group_of(name):                       # a tool from a group that was not loaded yet: load it
             self.enabled_groups.add(group_of(name))
         try:

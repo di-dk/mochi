@@ -62,12 +62,12 @@ def today_line() -> str:
 
 
 def parse(text: str) -> tuple[str, tuple[int, int, int]]:
-    """'2026-11-26' / '26 Nov 2026' -> ('AD', (y, m, d)); '2083-08-10 BS' or Devanagari digits -> ('BS', ...)."""
+    """'YYYY-MM-DD' -> ('AD', (y, m, d)); 'YYYY-MM-DD BS' or Devanagari digits -> ('BS', ...)."""
     t = to_ascii_digits(text).strip()
     cal = "BS" if re.search(r"\b(BS|B\.S\.|बि\.?\s?सं\.?|वि\.?\s?सं\.?)\b", t, re.I) else "AD" if re.search(r"\bAD\b|\bA\.D\.\b", t, re.I) else ""
     m = re.search(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})", t)
     if not m:
-        raise ValueError("Give a date like 2026-11-26 (AD) or 2083-08-10 BS.")
+        raise ValueError("Give a date as YYYY-MM-DD (AD) or YYYY-MM-DD BS.")
     y, mo, d = (int(v) for v in m.groups())
     if not cal:
         cal = "BS" if 1975 <= y <= 2100 else "AD"          # 2000-2100 can only be BS in practice; 1918-2043 AD otherwise
