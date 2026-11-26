@@ -28,3 +28,4 @@ pywebview>=6.0; sys_platform == "win32"
 kokoro-onnx>=0.5
 faster-whisper>=1.1
 soundfile>=0.12
+mcp>=1.2,<2

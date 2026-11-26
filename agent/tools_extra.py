@@ -72,6 +72,16 @@ def recent_lessons(ws: Path, limit: int = 25) -> str:
 def add_extra_tools(reg: Registry, policy: Policy, cfg: dict) -> None:
     ws = policy.workspace
 
+    # ------------------------------------------------------------------ asking instead of guessing
+    @reg.add("ask_user",
+             "Stop and ask the user ONE short question when a detail you truly need is missing and a wrong guess could waste their "
+             "time or cause harm (which account, which file, who to send it to, which of several options). Everything you "
+             "already did stays done; their answer arrives as their next message and you continue from there. Do NOT use it "
+             "for anything you can find out yourself with a tool, or to ask permission (approvals are automatic).",
+             {"question": S, "options": {"type": "array", "items": S}}, ["question"])
+    def ask_user(question: str, options: list | None = None):
+        return "Asked the user: " + question
+
     # ------------------------------------------------------------------ vision
     @reg.add("view_image", "LOOK at an image file (png/jpg/webp) — e.g. a generated picture, a chart, a photo.",
              {"path": S}, ["path"])

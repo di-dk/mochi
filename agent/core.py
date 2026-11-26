@@ -66,7 +66,7 @@ _CLAIM_RE = re.compile(r"\b(successfully|done|created|saved|sorted|completed|fin
                        r"remembered|noted|stored|recorded|added|deleted|removed|sent|scheduled|updated|renamed)\b", re.I)
 _ACTION_REQ = re.compile(r"\b(remember|save|create|make|write|add|delete|remove|send|schedule|store|convert|rename|move|"
                          r"generate|draw|note down)\b", re.I)
-_PASSIVE = {"web_search", "fetch_url", "find_skills", "read_skill", "recall", "comfy_status", "comfy_list_models",
+_PASSIVE = {"ask_user", "web_search", "fetch_url", "find_skills", "read_skill", "recall", "comfy_status", "comfy_list_models",
             "comfy_capabilities", "comfy_check", "comfy_node_info", "list_git_skills", "scan_skill", "use_tools", "set_plan",
             "update_plan", "find_files", "search_files", "find_my_files", "list_dir", "read_file", "read_document",
             "read_spreadsheet", "inspect_pdf", "view_image", "calculate", "date_math", "nepali_date", "nepali_format",
@@ -442,6 +442,30 @@ class Agent:
             del self.messages[1:idx]
 
     def _complete(self, kwargs: dict, quiet: bool = False) -> tuple[str, list[dict]]:
+        """One model call, with failover: if the main model server cannot be reached (down, overloaded, 5xx) and `llm.fallback`
+        names a backup (base_url + model, optional api_key_env), she switches to it for the rest of the session and says so."""
+        fb = (self.cfg["llm"].get("fallback") or {})
+        if fb.get("base_url") and fb.get("model") and getattr(self, "_on_fallback", False):
+            kwargs = {**kwargs, "model": fb["model"]}
+        try:
+            return self._complete_once(kwargs, quiet)
+        except Stopped:
+            raise
+        except Exception as e:  # noqa: BLE001
+            status = getattr(e, "status_code", 0) or 0
+            down = isinstance(e, (httpx.TransportError, OSError)) or type(e).__name__ in ("APIConnectionError", "APITimeoutError") \
+                or status >= 500
+            if not (fb.get("base_url") and fb.get("model")) or getattr(self, "_on_fallback", False) or not down:
+                raise
+            self._on_fallback = True
+            key = os.environ.get(fb.get("api_key_env") or "", "") or "none"
+            self.client = OpenAI(base_url=fb["base_url"], api_key=key, timeout=600)
+            self._no_stream = False
+            self.policy.audit("failover", to=fb["model"], reason=f"{type(e).__name__}: {str(e)[:120]}")
+            self.on_event("status", {"text": f"The main model is not answering, so I switched to the backup ({fb['model']})."})
+            return self._complete_once({**kwargs, "model": fb["model"]}, quiet)
+
+    def _complete_once(self, kwargs: dict, quiet: bool = False) -> tuple[str, list[dict]]:
         """One model call. Streams so a stop request can cut it short and the UI can show the text as it is
         written ("token" events, unless quiet). Returns (text, tool calls)."""
         create = self.client.chat.completions.create
@@ -719,6 +743,18 @@ class Agent:
                                "give your final answer.)")
                 self.on_event("tool_result", {"name": name, "result": result})
                 self.messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
+            asked = [c for c in calls if c["name"] == "ask_user"]
+            if asked:                                          # a detail is missing: stop here and put the question to the user
+                try:
+                    q = json.loads(asked[0]["arguments"] or "{}")
+                except ValueError:
+                    q = {}
+                text = str(q.get("question") or "I need one more detail from you.").strip()
+                opts = [str(o) for o in (q.get("options") or [])][:6]
+                if opts:
+                    text += "\n" + "\n".join(f"{i}. {o}" for i, o in enumerate(opts, 1))
+                self.policy.audit("assistant", text=text, asked=True)
+                return text
             images = reg.drain_images()
             if images and self.vision:
                 self.on_event("image", {"paths": [p for p, _ in images]})

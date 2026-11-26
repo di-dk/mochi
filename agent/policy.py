@@ -95,7 +95,8 @@ class Policy:
         if category in self.auto_allow and not sensitive:
             self.audit("approval", category=category, summary=summary, result="trusted-auto")
             return
-        if self.auto_mode and not sensitive and self.approver is not None and category not in self.auto_keep_asking:
+        if self.auto_mode and not sensitive and self.approver is not None and category not in self.auto_keep_asking \
+                and not category.startswith("mcp:"):              # third-party MCP servers always ask (unless that server says trust: auto)
             self.audit("approval", category=category, summary=summary, result="auto-mode")
             return
         if sensitive:

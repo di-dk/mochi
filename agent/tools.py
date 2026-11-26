@@ -45,6 +45,49 @@ B = {"type": "boolean"}
 N = {"type": "number"}
 
 
+class _BrowserThread:
+    """One long-lived thread that runs every browser call (Playwright's sync API is tied to the thread that started it)."""
+
+    def __init__(self):
+        import queue
+        import threading
+        self.q: "queue.Queue" = queue.Queue()
+        self.lock = threading.Lock()
+        self.thread = None
+
+    def _loop(self):
+        while True:
+            fn, box = self.q.get()
+            try:
+                box["result"] = fn()
+            except BaseException as e:  # noqa: BLE001 - handed back to the caller
+                box["error"] = e
+            box["done"].set()
+
+    def run(self, fn):
+        import threading
+        with self.lock:
+            if self.thread is None or not self.thread.is_alive():
+                self.thread = threading.Thread(target=self._loop, name="mochi-browser", daemon=True)
+                self.thread.start()
+        box = {"done": threading.Event()}
+        self.q.put((fn, box))
+        box["done"].wait()
+        if "error" in box:
+            raise box["error"]
+        return box["result"]
+
+
+_BROWSER_THREAD = None
+
+
+def _browser_worker() -> _BrowserThread:
+    global _BROWSER_THREAD
+    if _BROWSER_THREAD is None:
+        _BROWSER_THREAD = _BrowserThread()
+    return _BROWSER_THREAD
+
+
 def build_tools(policy: Policy, cfg: dict) -> Registry:
     reg = Registry()
     ws = policy.workspace
@@ -321,33 +364,99 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         return f"Pressed {'+'.join(keys)}"
 
     # ------------------------------------------------------------------ browser automation
+    # Playwright's sync API only works on the thread that started it, and every chat message runs on a new thread, so after the
+    # first message the browser connection was dead ("TargetClosedError: Playwright connection closed"). All browser work therefore
+    # runs on ONE dedicated thread that lives as long as the program, and a browser that died is restarted once automatically.
     state: dict = {}
+    worker = _browser_worker()
+
+    def on_browser_thread(fn):
+        import functools
+
+        @functools.wraps(fn)
+        def wrapper(*a, **kw):
+            return worker.run(lambda: fn(*a, **kw))
+        return wrapper
 
     def page():
         if "page" not in state:
             raise RuntimeError("No browser open. Call browser_open first.")
         return state["page"]
 
+    def forget_browser():
+        """Drop a dead browser (best effort) so the next browser_open starts a fresh one."""
+        try:
+            if "browser" in state:
+                state["browser"].close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if "pw" in state:
+                state["pw"].stop()
+        except Exception:  # noqa: BLE001
+            pass
+        state.clear()
+
+    def clear_stale_profile_locks(profile: Path):
+        """Her own browser can be left behind when the connection to it died (the window stays open, the profile stays locked and the
+        next launch fails with 'profile already in use'). Close those leftovers (only processes started with HER profile folder, never
+        the user's own browser), then remove lock files a killed Chromium left."""
+        import os
+        import signal
+        import subprocess
+        try:
+            pids = [int(x) for x in subprocess.run(["pgrep", "-f", f"--user-data-dir={profile}"], capture_output=True, text=True).stdout.split()
+                    if int(x) != os.getpid()]
+        except (OSError, ValueError):
+            pids = []
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            for pid in pids:
+                try:
+                    os.kill(pid, sig)
+                except OSError:
+                    pass
+            if pids:
+                time.sleep(1.5)
+                pids = [p for p in pids if os.path.exists(f"/proc/{p}")]
+        for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+            try:
+                (profile / name).unlink()
+            except OSError:
+                pass
+
+    def launch(visible: bool):
+        from playwright.sync_api import sync_playwright
+        profile = ROOT / ".browser-profile"
+        clear_stale_profile_locks(profile)
+        state["pw"] = sync_playwright().start()
+        state["browser"] = state["pw"].chromium.launch_persistent_context(
+            str(profile), headless=not visible, viewport={"width": 1280, "height": 900})
+        state["visible"] = visible
+        state["page"] = state["browser"].pages[0] if state["browser"].pages else state["browser"].new_page()
+
     @reg.add("browser_open",
              "Open a URL in Mochi's own Chromium browser (headless/invisible by default; logins and cookies are kept "
              "between sessions in her private profile). Use browser_screenshot to SEE the page.",
              {"url": S, "visible": B}, ["url"])
+    @on_browser_thread
     def browser_open(url: str, visible: bool = False):
         if "page" in state and state.get("visible") != visible:
             browser_close()
-        if "page" not in state:
-            from playwright.sync_api import sync_playwright
-            state["pw"] = sync_playwright().start()
-            profile = ROOT / ".browser-profile"
-            state["browser"] = state["pw"].chromium.launch_persistent_context(
-                str(profile), headless=not visible, viewport={"width": 1280, "height": 900})
-            state["visible"] = visible
-            state["page"] = state["browser"].pages[0] if state["browser"].pages else state["browser"].new_page()
-        page().goto(url, timeout=45000)
-        return f"Opened {page().url} — title: {page().title()}"
+        for attempt in (1, 2):
+            try:
+                if "page" not in state:
+                    launch(visible)
+                page().goto(url, timeout=45000)
+                return f"Opened {page().url} — title: {page().title()}"
+            except Exception as e:  # noqa: BLE001
+                if attempt == 2 or "closed" not in str(e).lower() and "Target" not in type(e).__name__:
+                    forget_browser()
+                    raise
+                forget_browser()                                  # the browser died: start a fresh one and try once more
 
     @reg.add("browser_read", "Return the visible text of the current page plus its links/buttons/inputs.",
              {"max_chars": I})
+    @on_browser_thread
     def browser_read(max_chars: int = 8000):
         pg = page()
         text = pg.inner_text("body")[:max_chars]
@@ -359,6 +468,7 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
 
     @reg.add("browser_click", "Click an element by CSS selector or visible text. Asks the user first.",
              {"selector": S, "text": S})
+    @on_browser_thread
     def browser_click(selector: str = "", text: str = ""):
         policy.require("browser_action", f"Click {selector or text!r} on {page().url}")
         (page().get_by_text(text).first if text else page().locator(selector).first).click(timeout=15000)
@@ -367,6 +477,7 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
 
     @reg.add("browser_fill", "Fill an input by CSS selector. Asks the user first.",
              {"selector": S, "value": S, "submit": B}, ["selector", "value"])
+    @on_browser_thread
     def browser_fill(selector: str, value: str, submit: bool = False):
         policy.require("browser_action", f"Fill {selector!r} with {value[:100]!r} on {page().url}")
         loc = page().locator(selector).first
@@ -379,6 +490,7 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
     @reg.add("browser_screenshot",
              "Screenshot the current page (visible area, or full_page=true) and LOOK at it (vision models).",
              {"path": S, "full_page": B})
+    @on_browser_thread
     def browser_screenshot(path: str = "", full_page: bool = False):
         p = policy.check_write(path or f"screenshots/page_{time.strftime('%Y%m%d_%H%M%S')}.png")
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -386,11 +498,10 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
         return f"Saved {p}" + reg.attach_image(p, f"browser page {page().url}")
 
     @reg.add("browser_close", "Close the automated browser.", {})
+    @on_browser_thread
     def browser_close():
         if "browser" in state:
-            state["browser"].close()
-            state["pw"].stop()
-            state.clear()
+            forget_browser()
         return "Browser closed."
 
     # ------------------------------------------------------------------ apps
@@ -988,13 +1099,15 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
             f.write(f"- [{time.strftime('%Y-%m-%d')}] {note.strip()}\n")
         return "Saved to memory."
 
-    @reg.add("recall", "Search saved memory notes (empty query = all).", {"query": S})
+    @reg.add("recall", "Search her memory: the saved notes AND everything said in past chats (best matches first, newest "
+                       "boosted). Use it before asking the user something they may have told her already. Empty query = the latest notes.",
+             {"query": S})
     def recall(query: str = ""):
-        if not mem.exists():
-            return "No memories yet."
-        lines = mem.read_text(encoding="utf-8").splitlines()
-        hits = [l for l in lines if all(w in l.lower() for w in query.lower().split())]
-        return "\n".join(hits[-50:]) or "No matching memories."
+        from . import memory_search
+        hits = memory_search.search(cfg, ws, query, limit=10)
+        if not hits:
+            return "Nothing in memory matches." if (mem.exists() or (ws / "chats").exists()) else "No memories yet."
+        return "\n".join(f"- {h['text'][:300]}  [{h['source']}]" for h in hits)
 
     from .tools_extra import add_extra_tools
     add_extra_tools(reg, policy, cfg)
@@ -1002,4 +1115,7 @@ def build_tools(policy: Policy, cfg: dict) -> Registry:
     if not IS_WINDOWS:               # ... and register the Linux ones whose backend works on this machine
         from .tools_linux import add_linux_tools
         add_linux_tools(reg, policy, cfg)
+    from .mcp_client import add_mcp_tools, settings as mcp_settings
+    if mcp_settings(cfg):
+        add_mcp_tools(reg, policy, cfg)           # servers the user listed in config (see agent/mcp_client.py)
     return reg

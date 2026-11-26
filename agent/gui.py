@@ -78,6 +78,7 @@ class GuiApp:
         self.transcript: list[dict] = []
         self._approvals: dict[str, dict] = {}
         self._lock = threading.Lock()
+        self.wake_until = 0.0                   # hands-free: until when she listens without hearing her name
         self.pet_hook = None                    # set by pet mode (pet/mochi_pet.py) when the desktop pet can run
 
     # ------------------------------------------------------------------ start-up
@@ -273,6 +274,7 @@ class GuiApp:
             if answer.strip() and not (last and last["t"] == "bot" and last["text"].strip() == answer.strip()):
                 self.transcript.append({"t": "bot", "text": answer})
             self.transcript.append({"t": "meta", "text": f"{secs}s" + (" · stopped" if answer == STOPPED else "")})
+            self.wake_until = time.time() + float(voice_mod.settings(self.cfg)["wake_window"])   # keep talking, no name needed
             self.bus.push("done", answer=answer, secs=secs, stopped=answer == STOPPED)
         except Exception as e:  # noqa: BLE001
             self.bus.push("error", text=f"{type(e).__name__}: {e}")
@@ -305,7 +307,7 @@ class GuiApp:
         """Everything a freshly opened page needs, plus where to start listening for new events."""
         with self.bus.cv:
             since = self.bus.base + len(self.bus.events)
-        return {**self.info(), "theme": self.theme(), "auto_mode": self.auto_mode(), "since": since, "chat_id": self.chat_id, "transcript": list(self.transcript),
+        return {**self.info(), "theme": self.theme(), "auto_mode": self.auto_mode(), "wake": self.wake_enabled(), "since": since, "chat_id": self.chat_id, "transcript": list(self.transcript),
                 "workspace": str(self.agent.policy.workspace) if self.agent else "",
                 "tools": len(self.agent.registry.tools) if self.agent else 0}
 
@@ -331,6 +333,35 @@ class GuiApp:
             return "Pet mode is not set up on this PC yet (see the README, Pet mode)."
         self.pet_hook("show" if cmd == "show" else "hide")
         return "ok"
+
+    def wake_enabled(self) -> bool:
+        return bool(voice_mod.settings(self.cfg)["wake_word"])
+
+    def set_wake(self, on: bool) -> str:
+        self.cfg.setdefault("voice", {})["wake_word"] = bool(on)
+        try:
+            save_local_setting("voice", "wake_word", bool(on))
+        except OSError as e:
+            return f"could not save: {e}"
+        return "ok"
+
+    def accept_speech(self, text: str) -> str:
+        """What she should act on after listening: with the wake word on, only speech that starts with her name (and then what you
+        say for `wake_window` seconds after her reply, or after you spoke to her). Anything else is room noise or a TV: ''."""
+        text = (text or "").strip()
+        if not text or not self.wake_enabled():
+            return text
+        woke, rest = voice_mod.strip_wake(text)
+        now = time.time()
+        window = float(voice_mod.settings(self.cfg)["wake_window"])
+        if woke:
+            self.wake_until = now + window
+            return rest or "Hi Mochi!"
+        if now < self.wake_until:
+            self.wake_until = now + window
+            return text
+        self.bus.push("status", text="(I heard something, but not my name, so I stayed quiet. Say 'Mochi, ...')")
+        return ""
 
     def auto_mode(self) -> bool:
         return bool(self.agent and getattr(self.agent.policy, "auto_mode", False))
@@ -614,7 +645,7 @@ def make_handler(app: GuiApp, host_header: str):
                 if v is None:
                     return self._json({"error": getattr(app, "_voice_err", "voice unavailable")}, 503)
                 try:
-                    return self._json({"text": v.listen(raw)})
+                    return self._json({"text": app.accept_speech(v.listen(raw))})
                 except Exception as e:  # noqa: BLE001
                     return self._json({"error": f"could not understand the recording: {e}"}, 500)
             if vpath == "/tts":                       # {"text": ...} in, WAV out
@@ -644,6 +675,8 @@ def make_handler(app: GuiApp, host_header: str):
                 self._json({"ok": app.answer(str(body.get("id", "")), str(body.get("answer", "")))})
             elif path == "/pet":
                 self._json({"status": app.pet(str(body.get("cmd", "show")))})
+            elif path == "/wake":
+                self._json({"status": app.set_wake(bool(body.get("on"))), "on": app.wake_enabled()})
             elif path == "/voice/status":
                 self._json(app.voice_status())
             elif path == "/auto":

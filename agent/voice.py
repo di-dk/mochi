@@ -21,6 +21,8 @@ DEFAULTS = {
     "speed": 0.97,
     "pitch": 1.06,                   # 1.0 = as is; 1.05 to 1.1 sounds younger (raises pitch, keeps the pace)
     "stt_model": "small",            # faster-whisper size: tiny/base/small/medium (CPU)
+    "wake_word": True,               # in hands-free mode she only reacts when you say her name ("Mochi, ...")
+    "wake_window": 25,               # seconds after she finishes answering when you can keep talking without the name
     "language": "",                  # "" = detect what you speak (English, Nepali, French, ...)
 }
 
@@ -79,6 +81,16 @@ def _pcm16k(wav: bytes):
     if sr != 16000 and len(x):
         x = np.interp(np.linspace(0, len(x) - 1, int(len(x) * 16000 / sr)), np.arange(len(x)), x).astype("float32")
     return x
+
+
+_WAKE = re.compile(
+    r"^\W*(?:(?:hey|hi|hello|okay|ok|yo|namaste|hai)\W+)?(?:mo+[-\s]?chi+e?s?|mochy|mochie|mochee|machi|moji|mochi's)\b[\s,.!?:;-]*", re.I)
+
+
+def strip_wake(text: str) -> tuple[bool, str]:
+    """(heard her name at the start, what was said after it). Whisper spells the name in several ways; all are accepted."""
+    m = _WAKE.match(text or "")
+    return (True, (text or "")[m.end():].strip()) if m else (False, (text or "").strip())
 
 
 _SENT = re.compile(r"^(.*?(?:[.!?。！？][\"')\]]*\s|\n))", re.S)

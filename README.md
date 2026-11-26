@@ -238,6 +238,26 @@ an extra, and the chat window has a 🐾 Pet button to bring her back from it.
 - **Settings** are in `~/.config/mochi-pet.json` (`scale`, `walk`, `voice`, `sleep_after` in seconds, `emoji`). If something misbehaves, `logs/pet-debug.log`
   records what a drag does.
 
+## Better memory, asking, backup model, MCP tools, wake word
+
+- **Memory search.** `recall` now searches her saved notes AND everything said in past chats, ranked by how well the words match (any
+  script, Nepali too) with newer things boosted. Optional: set `memory.embed_model` (an Ollama embedding model, e.g. `nomic-embed-text`,
+  pulled by you) in `config.local.yaml` and meaning-based matching is mixed in ("my sister" finds "Sita turns 30"). All local.
+- **She asks instead of guessing.** The `ask_user` tool lets her stop and put ONE short question to you when a detail she needs is missing
+  (with numbered options if there are some). Work already done stays done and your answer continues the task.
+- **Backup model.** If the main model server is down, she can switch to a backup for the rest of the session and tells you:
+  `llm: {fallback: {base_url: "http://127.0.0.1:11434/v1", model: "some-model", api_key_env: "OPTIONAL_ENV_NAME"}}`.
+- **MCP tools.** She can use tools from MCP servers that YOU list in `config.local.yaml` (`mcp: {servers: {name: {command, args, env, trust}}}`,
+  see the top of `agent/mcp_client.py`). An MCP server is a program that runs with your permissions, so: nothing is started, downloaded or
+  installed unless you wrote it in the config; every call asks you first (even in auto mode) unless you set `trust: auto` for that server;
+  its tool names, descriptions and results are treated as third-party text, never as instructions; a server whose tool list changes
+  after you first connected it is flagged; and it only gets the environment variables you list for it. `mcp_servers` shows what is connected.
+- **Wake word.** In hands-free mode (🎙 Talk, or the pet's microphone) she now only reacts when you say her name: "Mochi, what is the weather?"
+  After she answers you can keep talking for 25 seconds without it. Switch with the 👂 Wake button or the pet menu, or `voice.wake_word: false`.
+- **Her browser works again.** Her own Chromium (`browser_open`, `browser_click`, ...) now runs on one dedicated thread. Before, every
+  chat message ran on a new thread and the connection was dead after the first ("Playwright connection closed"). She also closes
+  leftover copies of her own browser and restarts a dead one.
+
 ## Which version is running
 
 The chat window shows it under her name (hover for details), the terminal banner shows it, and `mochi --version` prints it. A

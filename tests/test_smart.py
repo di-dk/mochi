@@ -405,3 +405,72 @@ def test_an_empty_reply_is_retried_once_without_tools(env):
 ])
 def test_nepali_is_told_apart_from_hindi(text, expected):
     assert smart.wants_nepali(text) is expected
+
+
+def test_ask_user_ends_the_turn_with_the_question_and_options(env):
+    agent, seen = make_agent(env, [("", [("ask_user", '{"question": "Which folder?", "options": ["Documents", "Downloads"]}')])])
+    out = agent.run("tidy my files")
+    assert out.startswith("Which folder?") and "1. Documents" in out and "2. Downloads" in out
+    assert len(seen) == 1                                  # no further model call: she waits for the answer
+
+
+def test_failover_switches_to_the_backup_when_the_main_model_is_down(env, monkeypatch):
+    import httpx
+    cfg, policy, reg = env
+    cfg["llm"]["fallback"] = {"base_url": "http://127.0.0.1:9/v1", "model": "backup-model"}
+    agent, seen = make_agent(env, [("hello", [])])
+    calls = {"n": 0}
+
+    def once(kwargs, quiet=False):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("down")
+        return f"ok from {kwargs['model']}", []
+    monkeypatch.setattr(agent, "_complete_once", once)
+    text, tcs = agent._complete({"model": "main-model"})
+    assert text == "ok from backup-model" and agent._on_fallback
+    text, _ = agent._complete({"model": "main-model"})      # and it stays on the backup afterwards
+    assert text == "ok from backup-model"
+
+
+def test_memory_search_finds_notes_and_old_chats_and_prefers_recent(tmp_path):
+    import json, time
+    from agent import memory_search
+    ws = tmp_path
+    (ws / "chats").mkdir()
+    (ws / "memory.md").write_text("- [2026-01-05] Sita's birthday is on May 4\n- [2020-01-05] The wifi password hint is the dog's name\n", encoding="utf-8")
+    now = time.time()
+    (ws / "chats" / "a.json").write_text(json.dumps({"title": "trip", "updated": now - 3 * 86400, "transcript": [
+        {"t": "user", "text": "I want to visit Pokhara in March"}, {"t": "bot", "text": "Pokhara is lovely in March!"}]}), encoding="utf-8")
+    cfg = {"llm": {"base_url": "http://x/v1"}}
+    r = memory_search.search(cfg, ws, "when is Sita birthday", now=now)
+    assert r and "May 4" in r[0]["text"] and "saved note" in r[0]["source"]
+    r = memory_search.search(cfg, ws, "pokhara march", now=now)
+    assert any("Pokhara" in h["text"] and "chat 'trip'" in h["source"] for h in r)
+    assert memory_search.search(cfg, ws, "zebra astronomy", now=now) == []
+    # meaning-based mixing (fake embedder: "sister" ~ "Sita")
+    fake = lambda texts: [[1.0, 0.0] if ("sister" in t or "Sita" in t) else [0.0, 1.0] for t in texts]
+    r = memory_search.search(cfg, ws, "my sister", now=now, embed=fake)
+    assert r and "Sita" in r[0]["text"]
+
+
+def test_wake_word_matcher_and_follow_up_window():
+    from agent.voice import strip_wake
+    assert strip_wake("Mochi, what's the weather?") == (True, "what's the weather?")
+    assert strip_wake("Hey Mochi open the browser") == (True, "open the browser")
+    assert strip_wake("Mo-chi tell me a joke") == (True, "tell me a joke")
+    assert strip_wake("Mochi.") == (True, "")
+    assert strip_wake("the mochi was delicious") == (False, "the mochi was delicious")
+    assert strip_wake("what time is it") == (False, "what time is it")
+
+
+def test_accept_speech_ignores_room_noise_until_her_name_then_keeps_a_window(tmp_path):
+    from agent.gui import GuiApp
+    app = GuiApp({"agent": {"name": "Mochi"}, "llm": {"model": "m"}, "voice": {"wake_word": True, "wake_window": 25}})
+    assert app.accept_speech("so anyway she said") == ""                 # no name: ignored
+    assert app.accept_speech("Mochi, play some music") == "play some music"
+    assert app.accept_speech("and make it louder") == "and make it louder"   # inside the window: no name needed
+    app.wake_until = 0
+    assert app.accept_speech("and make it louder") == ""                 # window over
+    app.cfg["voice"]["wake_word"] = False
+    assert app.accept_speech("anything at all") == "anything at all"

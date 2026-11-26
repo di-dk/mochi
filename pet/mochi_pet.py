@@ -301,7 +301,7 @@ class Pet:
         self.pop = Gtk.Popover(); self.pop.set_parent(parent); self.pop.set_has_arrow(False)
         self.menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL); self.pop.set_child(self.menu_box)
         self.items: dict[str, Gtk.Button] = {}
-        for key, cb in (("walk", self.toggle_walk), ("talk", self.toggle_typing), ("voice", self.toggle_voice), ("mic", self.toggle_mic),
+        for key, cb in (("walk", self.toggle_walk), ("talk", self.toggle_typing), ("voice", self.toggle_voice), ("mic", self.toggle_mic), ("wake", self.toggle_wake),
                         ("auto", self.toggle_auto), ("chat", self.open_chat),
                         ("hide", self.hide), ("quit", self.quit)):
             b = Gtk.Button(); b.set_halign(Gtk.Align.FILL); b.get_style_context()
@@ -320,6 +320,7 @@ class Pet:
         self.items["talk"].set_label("💬  Type to her")
         self.items["voice"].set_label(f"🔊  Her voice: {on(self.speak_on)}")
         self.items["mic"].set_label(f"🎙  Talk to her (microphone): {on(self.mic_on)}")
+        self.items["wake"].set_label(f"👂  Only answer when I say \"Mochi\": {on(self.gui.wake_enabled())}")
         self.items["auto"].set_label(f"⚡  Auto mode: {on(self.gui.auto_mode())}")
         self.items["walk"].set_label("📌  Staying where I put her (click to let her wander)" if not self.walk_on else "🚶  Wandering around (click to make her stay where she is)")
         self.items["chat"].set_label("🗨  Open the full chat")
@@ -367,7 +368,11 @@ class Pet:
             self.show_bubble("Listening isn't set up yet (see the README, Voice).", hold=6); return
         self.mic_on = True; self.speak_on = True
         threading.Thread(target=self._listen, daemon=True).start()
-        self.show_bubble("I'm listening 🎙 Just talk to me!", hold=4)
+        self.show_bubble('I\'m listening 🎙 Say "Mochi, ..." to talk to me!' if self.gui.wake_enabled() else "I\'m listening 🎙 Just talk to me!", hold=5)
+
+    def toggle_wake(self) -> None:
+        on = not self.gui.wake_enabled(); self.gui.set_wake(on)
+        self.show_bubble('I will only answer when you say "Mochi" 👂 (then keep talking for a while)' if on else "I'll answer everything I hear 🎙", hold=4)
 
     def toggle_auto(self) -> None:
         on = not self.gui.auto_mode(); self.gui.set_auto_mode(on)
@@ -576,7 +581,7 @@ class Pet:
                     if len(audio) > rate * 0.4:
                         buf = io.BytesIO(); sf.write(buf, audio, rate, format="WAV", subtype="PCM_16")
                         try:
-                            text = (self.gui.voice().listen(buf.getvalue()) or "").strip()
+                            text = self.gui.accept_speech(self.gui.voice().listen(buf.getvalue()) or "").strip()
                         except Exception:  # noqa: BLE001
                             text = ""
                         if len(text) > 1:

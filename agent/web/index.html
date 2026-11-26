@@ -201,6 +201,7 @@ textarea:focus{border-color:var(--pink)}
     <div class="sp"></div>
     <button id="petbtn" title="Pet mode: a small animated Mochi on top of your screen">🐾 Pet</button>
     <button id="voicebtn" title="She reads her replies out loud">🔊 Voice: off</button>
+    <button id="wakebtn" title="Hands-free: only react when you say her name (Mochi, ...). Click to switch.">👂 Wake: on</button>
     <button id="talkbtn" title="Talk to her: speak and she answers in her voice (hands-free)">🎙 Talk</button>
     <button id="autobtn" title="Auto mode: she works on her own without asking about each action (deleting and sensitive things still ask)">⚡ Auto: off</button>
     <div style="position:relative">
@@ -784,6 +785,9 @@ async function talkStart(){
   };
   src.connect(M.node); M.node.connect(M.ctx.destination); V.talk=true; vlabel(); }
 function talkStop(){ try{ M.node&&M.node.disconnect(); M.stream&&M.stream.getTracks().forEach(t=>t.stop()); M.ctx&&M.ctx.close(); }catch(e){} M.node=M.stream=M.ctx=null; V.talk=false; vlabel(); }
+let wakeOn=true;
+function showWake(on){ wakeOn=!!on; const b=$("wakebtn"); b.textContent=on?"👂 Wake: on":"👂 Wake: off"; }
+$("wakebtn").onclick=async()=>{ try{ const r=await post("/wake",{on:!wakeOn}); showWake(r.on); }catch(e){} };
 $("talkbtn").onclick=()=>{ if(V.talk) talkStop(); else talkStart(); };
 vlabel();
 
@@ -796,7 +800,7 @@ inp.addEventListener("input",()=>{inp.style.height="auto";inp.style.height=Math.
     const st=await api("/state"); since=st.since; ready=!!st.ready;
     if(ready){ $("sub").dataset.base=`${st.model} · ${st.tools} tools`; $("sub").textContent=$("sub").dataset.base; loadModels(); }
     else $("sub").textContent="waking up…";
-    applyTheme(st.theme||"auto",false); showAuto(st.auto_mode);
+    applyTheme(st.theme||"auto",false); showAuto(st.auto_mode); showWake(st.wake!==false);
     chatId=st.chat_id; renderTranscript(st.transcript||[]); if(st.busy) setBusy(true);
     await loadChats();
   }catch(e){ showBanner("Could not reach her yet…"); }
