@@ -25,3 +25,6 @@ pandas>=2.2
 matplotlib>=3.9
 nepali-datetime==1.0.8.5     # Nepali (Bikram Sambat) calendar; MIT, no dependencies
 pywebview>=6.0; sys_platform == "win32"
+kokoro-onnx>=0.5
+faster-whisper>=1.1
+soundfile>=0.12

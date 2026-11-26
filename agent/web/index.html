@@ -199,6 +199,9 @@ textarea:focus{border-color:var(--pink)}
     <button id="burger" title="Chats">☰</button>
     <div class="t"><b id="ctitle">New chat</b><span id="sub">starting…</span></div>
     <div class="sp"></div>
+    <button id="voicebtn" title="She reads her replies out loud">🔊 Voice: off</button>
+    <button id="talkbtn" title="Talk to her: speak and she answers in her voice (hands-free)">🎙 Talk</button>
+    <button id="autobtn" title="Auto mode: she works on her own without asking about each action (deleting and sensitive things still ask)">⚡ Auto: off</button>
     <div style="position:relative">
       <button id="themebtn" title="Color theme">🎨</button>
       <div id="themes"></div>
@@ -563,7 +566,8 @@ async function loop(){
   for(;;){
     try{
       const r=await api("/poll?since="+since);
-      for(const e of r.events){ since=Math.max(since,e.id); evq.push(e); }
+      for(const e of r.events){ since=Math.max(since,e.id); evq.push(e);
+        if(e.kind==="token") vfeed(e.text); else if(e.kind==="done"||e.kind==="error") vflush(); else if(e.kind==="user"&&!e.queued){ vstop(); } }
     }catch(err){ showBanner("Lost connection to her… retrying"); await new Promise(r=>setTimeout(r,1500)); }
   }
 }
@@ -663,6 +667,10 @@ function drawThemes(){
     box.appendChild(b);
   });
 }
+let autoOn=false;
+function showAuto(on){ autoOn=!!on; const b=$("autobtn"); b.textContent=on?"⚡ Auto: ON":"⚡ Auto: off";
+  b.style.background=on?"var(--pink)":""; b.style.color=on?"#fff":""; }
+$("autobtn").onclick=async()=>{ try{ const r=await post("/auto",{on:!autoOn}); showAuto(r.on); }catch(e){ showBanner("Could not change auto mode."); } };
 $("themebtn").onclick=e=>{ e.stopPropagation(); $("themes").classList.toggle("open"); };
 document.addEventListener("click",e=>{ if(!$("themes").contains(e.target)) $("themes").classList.remove("open"); });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") $("themes").classList.remove("open"); });
@@ -712,7 +720,71 @@ async function sendMsg(){
   if(r.status==="busy") showBanner("Wait until she finishes before doing that.");
 }
 $("send").onclick=sendMsg;
-$("stop").onclick=()=>post("/stop",{});
+$("stop").onclick=()=>{ vstop(); post("/stop",{}); };
+
+// ---------------------------------------------------------------- voice: she speaks as she writes, and you can talk to her
+const V={speak:false, talk:false, q:[], buf:"", playing:false, gen:0, audio:null, ok:null};
+try{ V.speak=localStorage.getItem("mochiSpeak")==="1"; }catch(e){}
+function vlabel(){ const b=$("voicebtn"), t=$("talkbtn");
+  b.textContent=V.speak?"🔊 Voice: ON":"🔊 Voice: off"; b.style.background=V.speak?"var(--pink)":""; b.style.color=V.speak?"#fff":"";
+  t.textContent=V.talk?"🎙 Listening…":"🎙 Talk"; t.style.background=V.talk?"var(--pink)":""; t.style.color=V.talk?"#fff":""; }
+async function vcheck(){ if(V.ok!==null) return V.ok;
+  try{ const r=await post("/voice/status",{}); V.ok=!!r.ok; if(!r.ok) showBanner("Voice is not ready: "+(r.why||"unknown")); }catch(e){ V.ok=false; }
+  return V.ok; }
+function vstop(){ V.gen++; V.q=[]; V.buf=""; V.playing=false; if(V.audio){ try{V.audio.pause();}catch(e){} V.audio=null; } }
+function vfeed(text){ if(!V.speak) return; V.buf+=text;
+  let mm; while((mm=V.buf.match(/^([\s\S]*?(?:[.!?。！？]["')\]]*\s|\n))/))){ vqueue(mm[1]); V.buf=V.buf.slice(mm[1].length); } }
+function vflush(){ if(V.buf.trim()) vqueue(V.buf); V.buf=""; }
+function vqueue(t){ if(!/\w/.test(t)) return; V.q.push(t); vplay(); }
+async function vfetch(t,gen){
+  const r=await fetch("/tts",{method:"POST",headers:{"X-Mochi-Token":TOKEN,"Content-Type":"application/json"},body:JSON.stringify({text:t})});
+  if(!r.ok||gen!==V.gen) return null; const b=await r.blob(); return b.size>100?URL.createObjectURL(b):null; }
+async function vplay(){ if(V.playing) return; V.playing=true; const gen=V.gen;
+  let next=V.q.length?vfetch(V.q.shift(),gen):null;
+  while(next && gen===V.gen){
+    const url=await next; next=V.q.length?vfetch(V.q.shift(),gen):null;
+    if(!url||gen!==V.gen) continue;
+    await new Promise(res=>{ const a=new Audio(url); V.audio=a; a.onended=a.onerror=()=>{ URL.revokeObjectURL(url); res(); }; a.play().catch(res); });
+  }
+  if(gen===V.gen){ V.playing=false; V.audio=null; if(V.q.length) vplay(); } }
+$("voicebtn").onclick=async()=>{ if(!V.speak){ if(!await vcheck()) return; }
+  V.speak=!V.speak; try{localStorage.setItem("mochiSpeak",V.speak?"1":"0");}catch(e){}
+  if(!V.speak){ vstop(); if(V.talk) talkStop(); } vlabel(); };
+// -- microphone, hands-free: records when you speak, sends it when you pause, she answers aloud
+const M={ctx:null,stream:null,node:null,rec:[],pre:[],speech:false,loud:0,quiet:0,floor:0.01};
+function wavFrom(chunks,rate){ let n=0; chunks.forEach(c=>n+=c.length); const x=new Float32Array(n); let o=0; chunks.forEach(c=>{x.set(c,o);o+=c.length;});
+  const ratio=rate/16000, len=Math.floor(x.length/ratio), pcm=new Int16Array(len);
+  for(let i=0;i<len;i++){ const v=Math.max(-1,Math.min(1,x[Math.floor(i*ratio)])); pcm[i]=v<0?v*0x8000:v*0x7fff; }
+  const b=new ArrayBuffer(44+pcm.length*2), d=new DataView(b), w=(p,s)=>{for(let i=0;i<s.length;i++)d.setUint8(p+i,s.charCodeAt(i));};
+  w(0,"RIFF"); d.setUint32(4,36+pcm.length*2,true); w(8,"WAVEfmt "); d.setUint32(16,16,true); d.setUint16(20,1,true); d.setUint16(22,1,true);
+  d.setUint32(24,16000,true); d.setUint32(28,32000,true); d.setUint16(32,2,true); d.setUint16(34,16,true); w(36,"data"); d.setUint32(40,pcm.length*2,true);
+  new Int16Array(b,44).set(pcm); return new Blob([b],{type:"audio/wav"}); }
+async function heard(chunks,rate){
+  $("talkbtn").textContent="🎙 …"; try{
+    const r=await fetch("/stt",{method:"POST",headers:{"X-Mochi-Token":TOKEN},body:wavFrom(chunks,rate)}); const j=await r.json();
+    if(j.error) showBanner(j.error); else if(j.text&&j.text.trim().length>1){ inp.value=j.text.trim(); sendMsg(); }
+  }catch(e){ showBanner("Could not send what you said."); } vlabel(); }
+async function talkStart(){
+  if(!await vcheck()) return;
+  try{ M.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}}); }
+  catch(e){ showBanner("I can't use the microphone: allow it in the browser (the lock icon by the address)."); return; }
+  if(!V.speak){ V.speak=true; try{localStorage.setItem("mochiSpeak","1");}catch(e){} }
+  M.ctx=new (window.AudioContext||window.webkitAudioContext)(); const src=M.ctx.createMediaStreamSource(M.stream);
+  M.node=M.ctx.createScriptProcessor(4096,1,1); const rate=M.ctx.sampleRate; M.rec=[]; M.pre=[]; M.speech=false; M.loud=0; M.quiet=0;
+  M.node.onaudioprocess=ev=>{
+    const x=new Float32Array(ev.inputBuffer.getChannelData(0)); let s=0; for(let i=0;i<x.length;i++) s+=x[i]*x[i]; const rms=Math.sqrt(s/x.length);
+    const dur=x.length/rate;
+    if(V.playing||(V.audio&&!V.audio.paused)){ M.rec=[]; M.pre=[]; M.speech=false; M.loud=M.quiet=0; return; }   // do not hear herself
+    if(!M.speech){ M.floor=M.floor*0.95+rms*0.05; M.pre.push(x); if(M.pre.length>4) M.pre.shift();
+      if(rms>Math.max(0.02,M.floor*3)){ M.loud+=dur; if(M.loud>0.12){ M.speech=true; M.rec=M.pre.slice(); M.quiet=0; } } else M.loud=0; }
+    else { M.rec.push(x); if(rms>Math.max(0.015,M.floor*2)) M.quiet=0; else M.quiet+=dur;
+      if(M.quiet>0.9){ const chunks=M.rec; M.rec=[]; M.pre=[]; M.speech=false; M.loud=0; if(chunks.length>6) heard(chunks,rate); } }
+  };
+  src.connect(M.node); M.node.connect(M.ctx.destination); V.talk=true; vlabel(); }
+function talkStop(){ try{ M.node&&M.node.disconnect(); M.stream&&M.stream.getTracks().forEach(t=>t.stop()); M.ctx&&M.ctx.close(); }catch(e){} M.node=M.stream=M.ctx=null; V.talk=false; vlabel(); }
+$("talkbtn").onclick=()=>{ if(V.talk) talkStop(); else talkStart(); };
+vlabel();
+
 inp.addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMsg()} });
 inp.addEventListener("input",()=>{inp.style.height="auto";inp.style.height=Math.min(inp.scrollHeight,180)+"px"});
 
@@ -722,7 +794,7 @@ inp.addEventListener("input",()=>{inp.style.height="auto";inp.style.height=Math.
     const st=await api("/state"); since=st.since; ready=!!st.ready;
     if(ready){ $("sub").dataset.base=`${st.model} · ${st.tools} tools`; $("sub").textContent=$("sub").dataset.base; loadModels(); }
     else $("sub").textContent="waking up…";
-    applyTheme(st.theme||"auto",false);
+    applyTheme(st.theme||"auto",false); showAuto(st.auto_mode);
     chatId=st.chat_id; renderTranscript(st.transcript||[]); if(st.busy) setBusy(true);
     await loadChats();
   }catch(e){ showBanner("Could not reach her yet…"); }

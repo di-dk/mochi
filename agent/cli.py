@@ -310,6 +310,15 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 switch_model(arg)
             continue
+        if text.startswith("/auto"):
+            arg = text[5:].strip().lower()
+            if arg in ("on", "off"):
+                agent.policy.auto_mode = arg == "on"
+                save_local_setting("approvals", "auto_mode", agent.policy.auto_mode)
+            console.print("Auto mode is [bold]" + ("ON[/]: she works without asking (deleting, skill imports and sensitive "
+                          "targets still ask)." if agent.policy.auto_mode else "OFF[/]: she asks before risky actions.")
+                          + " Use /auto on or /auto off.")
+            continue
         if text == "/allowed":
             console.print(agent.policy.session_allowed or "(nothing auto-approved)"); continue
         handle(text)

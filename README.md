@@ -207,6 +207,19 @@ Not everything installed has a ready workflow yet: music (ACE-Step), Qwen-Image 
 effects show up as "needs a workflow", and she builds those with `comfy-new-workflow`. No one can promise "never fails", so there is
 an opt-in test against your real ComfyUI: `MOCHI_LIVE_COMFY=1 pytest tests/test_comfy_expert.py`.
 
+## Her voice, talking to her, and auto mode
+
+- **Voice** (🔊 in the chat window): she reads her replies aloud sentence by sentence while she writes them. **Talk** (🎙):
+  hands-free conversation. You speak, pause, and she answers in her voice. Both run locally on the CPU (Kokoro for speaking,
+  Whisper for listening), so nothing leaves your PC and the GPU stays free for the language model. `./setup.sh` downloads the
+  voice files (about 840 MB) into `models/voice`. The microphone works in the browser window (it needs your permission);
+  headphones avoid her hearing herself. Her voice is a blend set in `config.local.yaml`:
+  `voice: {blend: "af_bella:0.75,jf_tebukuro:0.25", speed: 0.97, pitch: 1.06}`. Kokoro has no Asian-accented English voice,
+  so the Japanese part of the blend only softens the tone. Say her name "MOH-chee": that is handled for you.
+- **Auto mode** (⚡ in the header, or `/auto on` in the terminal): she works on her own without asking about each action. She
+  still asks before deleting, importing a skill, or typing into sensitive windows (terminals, password prompts), and scheduled
+  unattended runs never get auto mode. Add more categories to keep asking about with `approvals.auto_mode_keep_asking`.
+
 ## Which version is running
 
 The chat window shows it under her name (hover for details), the terminal banner shows it, and `mochi --version` prints it. A

@@ -38,6 +38,15 @@ fi
 .venv/bin/python -m pip install -r requirements.txt -q
 if [[ $NO_BROWSER -eq 0 ]]; then .venv/bin/python -m playwright install chromium; fi
 
+
+# Her voice (all local): Kokoro text-to-speech and Whisper speech recognition model files, about 840 MB, fetched once.
+mkdir -p models/voice/whisper-small
+K=https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0
+for f in kokoro-v1.0.onnx voices-v1.0.bin; do [[ -s models/voice/$f ]] || curl -fsSL -o models/voice/$f "$K/$f" || echo "Could not download $f (voice stays off)"; done
+for f in config.json model.bin tokenizer.json vocabulary.txt; do
+  [[ -s models/voice/whisper-small/$f ]] || curl -fsSL -o models/voice/whisper-small/$f "https://huggingface.co/Systran/faster-whisper-small/resolve/main/$f" || echo "Could not download $f (listening stays off)"
+done
+
 # NVIDIA SkillSpector (Apache-2.0) scans every skill BEFORE she installs it. It brings many dependencies, so it gets its
 # own virtual environment in .skillspector/ (it needs Python 3.12 or 3.13).
 if [[ $NO_SS -eq 0 ]]; then

@@ -172,3 +172,37 @@ def test_save_local_setting_keeps_other_keys(tmp_path, monkeypatch):
     core.save_local_setting("llm", "model", "other-model")
     data = yaml.safe_load((tmp_path / "config.local.yaml").read_text(encoding="utf-8"))
     assert data == {"comfyui": {"default_checkpoint": "x.safetensors"}, "llm": {"model": "other-model"}}
+
+
+def test_auto_mode_skips_asking_but_keeps_hard_stops(env):
+    pol = env[1]
+    asked = []
+    pol.approver = lambda c, s: asked.append(c) or "n"
+    pol.auto_mode = True
+    pol.require("write_outside", "x")                       # auto-approved: nobody asked
+    assert asked == []
+    for cat, sens in (("delete", False), ("skill_import", False), ("desktop", True)):
+        try:
+            pol.require(cat, "x", sensitive=sens)
+            raise AssertionError(cat)
+        except Exception as e:                              # the (declining) human was asked
+            assert "declined" in str(e)
+    assert asked == ["delete", "skill_import", "desktop"]
+    pol.auto_mode, pol.approver = True, None                 # unattended runs never get auto mode
+    try:
+        pol.require("write_outside", "x"); raise AssertionError("unattended")
+    except Exception as e:
+        assert "unattended" in str(e)
+
+
+def test_voice_text_cleaning_and_blend_settings():
+    from agent import voice
+    t = voice.speakable("**Done!** See [the doc](https://x.io/a) and `rm -rf`\n```py\nprint(1)\n```\n- one 😀 two")
+    assert "http" not in t and "`" not in t and "print" not in t and "*" not in t and "😀" not in t
+    assert t.startswith("Done!") and "the doc" in t and "one" in t
+    assert voice.settings({"voice": {"speed": 1.2}})["speed"] == 1.2 and voice.settings({})["enabled"] is True
+
+
+def test_her_name_is_said_moh_chee():
+    from agent import voice
+    assert voice.speakable("Hi, I'm Mochi! Mochi's here, and MOCHI too.") == "Hi, I'm Mohchee! Mohchee's here, and Mohchee too."

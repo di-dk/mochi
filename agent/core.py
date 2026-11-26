@@ -210,7 +210,9 @@ def make_policy(cfg: dict, approver=None) -> Policy:
                   shell_hard_deny=cfg["shell"].get("hard_deny", []),
                   audit_path=ROOT / "logs" / "audit.jsonl",
                   approver=approver,
-                  auto_allow=set((cfg.get("approvals") or {}).get("auto_allow") or []) - NEVER_AUTO)
+                  auto_allow=set((cfg.get("approvals") or {}).get("auto_allow") or []) - NEVER_AUTO,
+                  auto_mode=bool((cfg.get("approvals") or {}).get("auto_mode", False)),
+                  auto_keep_asking=set((cfg.get("approvals") or {}).get("auto_mode_keep_asking", ["delete"])) | {"skill_import"})
 
 
 def ensure_llm(cfg: dict, log: Callable[[str], None] = print) -> None:

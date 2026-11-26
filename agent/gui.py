@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import html as html_lib
 
-from . import attach, media, version
+from . import attach, media, version, voice as voice_mod
 from .history import ChatStore, clean_messages, new_id, title_from
 from .core import ROOT, STOPPED, Agent, ensure_llm, list_models, make_policy, save_local_setting
 
@@ -304,9 +304,41 @@ class GuiApp:
         """Everything a freshly opened page needs, plus where to start listening for new events."""
         with self.bus.cv:
             since = self.bus.base + len(self.bus.events)
-        return {**self.info(), "theme": self.theme(), "since": since, "chat_id": self.chat_id, "transcript": list(self.transcript),
+        return {**self.info(), "theme": self.theme(), "auto_mode": self.auto_mode(), "since": since, "chat_id": self.chat_id, "transcript": list(self.transcript),
                 "workspace": str(self.agent.policy.workspace) if self.agent else "",
                 "tools": len(self.agent.registry.tools) if self.agent else 0}
+
+    def voice(self):
+        """Her Voice object (made on first use), or None with a reason when it cannot run."""
+        if getattr(self, "_voice", None) is None:
+            ok, why = voice_mod.available()
+            if not ok or not voice_mod.settings(self.cfg)["enabled"]:
+                self._voice_err = why or "voice is switched off (voice.enabled: false)"
+                return None
+            self._voice = voice_mod.Voice(self.cfg)
+        return self._voice
+
+    def voice_status(self) -> dict:
+        v = self.voice()
+        if v is None:
+            return {"ok": False, "why": getattr(self, "_voice_err", "")}
+        v.warm()
+        return {"ok": True}
+
+    def auto_mode(self) -> bool:
+        return bool(self.agent and getattr(self.agent.policy, "auto_mode", False))
+
+    def set_auto_mode(self, on: bool) -> str:
+        if self.agent is None:
+            return "not ready"
+        self.agent.policy.auto_mode = bool(on)
+        self.cfg.setdefault("approvals", {})["auto_mode"] = bool(on)
+        self.agent.policy.audit("auto_mode", on=bool(on))
+        try:
+            save_local_setting("approvals", "auto_mode", bool(on))
+        except OSError as e:
+            return f"could not save: {e}"
+        return "ok"
 
     def theme(self) -> str:
         t = (self.cfg.get("ui") or {}).get("theme", "auto")
@@ -568,6 +600,29 @@ def make_handler(app: GuiApp, host_header: str):
                 except Exception as e:  # noqa: BLE001
                     self.close_connection = True
                     return self._json({"error": str(e)}, 400)
+            vpath = urlparse(self.path).path
+            if vpath == "/stt":                       # raw WAV recording in, text out
+                raw = self.rfile.read(min(n, 25_000_000))
+                v = app.voice()
+                if v is None:
+                    return self._json({"error": getattr(app, "_voice_err", "voice unavailable")}, 503)
+                try:
+                    return self._json({"text": v.listen(raw)})
+                except Exception as e:  # noqa: BLE001
+                    return self._json({"error": f"could not understand the recording: {e}"}, 500)
+            if vpath == "/tts":                       # {"text": ...} in, WAV out
+                try:
+                    data = json.loads(self.rfile.read(n) or b"{}")
+                except ValueError:
+                    return self._json({"error": "bad json"}, 400)
+                v = app.voice()
+                if v is None:
+                    return self._json({"error": getattr(app, "_voice_err", "voice unavailable")}, 503)
+                try:
+                    wav = v.speak(str(data.get("text", ""))[:2000])
+                except Exception as e:  # noqa: BLE001
+                    return self._json({"error": f"could not speak: {e}"}, 500)
+                return self._send(200, wav, "audio/wav")
             try:
                 body = json.loads(self.rfile.read(n) or b"{}")
             except ValueError:
@@ -580,6 +635,10 @@ def make_handler(app: GuiApp, host_header: str):
                 self._json({"status": "stopping"})
             elif path == "/approve":
                 self._json({"ok": app.answer(str(body.get("id", "")), str(body.get("answer", "")))})
+            elif path == "/voice/status":
+                self._json(app.voice_status())
+            elif path == "/auto":
+                self._json({"status": app.set_auto_mode(bool(body.get("on"))), "on": app.auto_mode()})
             elif path == "/theme":
                 self._json({"status": app.set_theme(str(body.get("name", "")))})
             elif path == "/chat/new":

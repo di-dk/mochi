@@ -73,6 +73,12 @@ class Policy:
     # Categories the user trusts Mochi to do on her own (config approvals.auto_allow), e.g. {"launch", "desktop"}.
     # Sensitive targets (terminals, Run box, registry, installers...) still ask.
     auto_allow: set[str] = field(default_factory=set)
+    # Auto mode (a switch in the chat window / `/auto` in the terminal): she works on her own and does not ask about each
+    # action. It only applies while a person is present (approver set), never to scheduled/unattended runs. Even then
+    # these still ask: sensitive targets (terminals, password prompts...), importing skills, and `auto_keep_asking`
+    # (default: deleting). Secret files and the hard-deny shell rules are never affected.
+    auto_mode: bool = False
+    auto_keep_asking: set[str] = field(default_factory=lambda: {"delete", "skill_import"})
 
     # ---------- audit ----------
     def audit(self, event: str, **data) -> None:
@@ -88,6 +94,9 @@ class Policy:
         so trusted auto-approval doesn't apply."""
         if category in self.auto_allow and not sensitive:
             self.audit("approval", category=category, summary=summary, result="trusted-auto")
+            return
+        if self.auto_mode and not sensitive and self.approver is not None and category not in self.auto_keep_asking:
+            self.audit("approval", category=category, summary=summary, result="auto-mode")
             return
         if sensitive:
             summary = "⚠ sensitive target — " + summary
