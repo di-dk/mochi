@@ -183,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.unattended:
         log = ROOT / "logs" / f"run_{time.strftime('%Y%m%d_%H%M%S')}.log"
         log.parent.mkdir(exist_ok=True)
+        log.touch(mode=0o600)
         with log.open("w", encoding="utf-8") as f:
             def ev(kind, data):
                 f.write(f"[{time.strftime('%H:%M:%S')}] {kind}: {str(data)[:2000]}\n"); f.flush()

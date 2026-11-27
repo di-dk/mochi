@@ -464,6 +464,13 @@ Studio contract (any program works):
   can push a 35B model off the GPU and make it ~50× slower.
 - Before loading the model and after each image job, Mochi asks ComfyUI to free VRAM.
 
+## Privacy
+
+- **Everything runs on your PC.** Her voice (speech-to-text and text-to-speech) and her chat window are local; the chat window only listens on `127.0.0.1` and needs a random per-run token. There is no telemetry or analytics.
+- **What can leave your PC**, and only when you ask for it: the `wikipedia` and GitHub search tools send your search words, the weather tool sends the city name (and so your IP address) to Open-Meteo, and importing a skill downloads it from GitHub. Skills are scanned before they are installed.
+- **What she keeps on disk**, all readable only by you: saved chats, the audit log `logs/audit.jsonl` (what you asked and what she did) and run logs. Set `privacy.audit_text: false` in `config.yaml` to leave the text of your messages out of the audit log, and `privacy.audit_max_mb` to choose when it rolls over. Her browser logins live in `.browser-profile/`, which is git-ignored.
+- **Never put API keys in a file.** Use the environment variable named in `llm.api_key_env`.
+
 ## Limitations
 
 - Vision needs a vision model (e.g. gemma-4). Local vision reads pages and images well but not perfectly

@@ -6,6 +6,7 @@ old chat gives her back what she knew, with no need to explain everything again.
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 import time
@@ -53,6 +54,8 @@ class ChatStore:
         chat["updated"] = time.time()
         tmp = p.with_suffix(".tmp")
         tmp.write_text(json.dumps(chat, ensure_ascii=False), encoding="utf-8")
+        if os.name == "posix":
+            os.chmod(tmp, 0o600)                              # saved chats are private to you
         tmp.replace(p)
 
     def load(self, chat_id: str) -> dict | None:

@@ -72,6 +72,11 @@ approvals:
   # shells like PowerShell/cmd, Win+R-style hotkeys. Deleting files and writing outside the workspace always ask.
   auto_allow: []
 
+privacy:
+  # Her audit log (logs/audit.jsonl) is readable only by you. It records what you asked and what she did.
+  audit_text: true          # false = keep the actions but leave out the text of your messages and her replies
+  audit_max_mb: 5           # the log rolls over to audit.jsonl.1 at this size (one older file is kept)
+
 shell:
   timeout_s: 120
   # Commands whose FIRST token matches one of these run without approval (read-only)

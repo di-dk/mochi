@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,6 +61,15 @@ class Denied(Exception):
 Approver = Callable[[str, str], str]
 
 
+def _private(path: Path, mode: int) -> None:
+    """Make a file/folder of ours owner-only (no effect on Windows, where it is not meaningful)."""
+    if os.name == "posix":
+        try:
+            os.chmod(path, mode)
+        except OSError:
+            pass
+
+
 @dataclass
 class Policy:
     workspace: Path
@@ -79,13 +89,27 @@ class Policy:
     # (default: deleting). Secret files and the hard-deny shell rules are never affected.
     auto_mode: bool = False
     auto_keep_asking: set[str] = field(default_factory=lambda: {"delete", "skill_import"})
+    # Privacy of the audit log (config `privacy:`): keep what you typed / what she answered in it, and how big it may
+    # grow before it rolls over to audit.jsonl.1 (one old file kept). The log is only ever readable by you.
+    audit_text: bool = True
+    audit_max_bytes: int = 5 * 1024 * 1024
 
     # ---------- audit ----------
     def audit(self, event: str, **data) -> None:
+        if not self.audit_text and event in ("user", "assistant") and "text" in data:
+            data["text"] = f"<omitted, {len(str(data['text']))} chars>"
         self.audit_path.parent.mkdir(parents=True, exist_ok=True)
+        _private(self.audit_path.parent, 0o700)
+        try:                                                  # roll over so the log (and what's in it) cannot grow forever
+            if self.audit_max_bytes > 0 and self.audit_path.stat().st_size > self.audit_max_bytes:
+                self.audit_path.replace(self.audit_path.with_name(self.audit_path.name + ".1"))
+        except OSError:
+            pass
         rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "event": event, **data}
-        with self.audit_path.open("a", encoding="utf-8") as f:
+        fd = os.open(self.audit_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)     # owner-only from the start
+        with os.fdopen(fd, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
+        _private(self.audit_path, 0o600)
 
     # ---------- approvals ----------
     def require(self, category: str, summary: str, sensitive: bool = False) -> None:

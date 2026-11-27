@@ -212,7 +212,9 @@ def make_policy(cfg: dict, approver=None) -> Policy:
                   approver=approver,
                   auto_allow=set((cfg.get("approvals") or {}).get("auto_allow") or []) - NEVER_AUTO,
                   auto_mode=bool((cfg.get("approvals") or {}).get("auto_mode", False)),
-                  auto_keep_asking=set((cfg.get("approvals") or {}).get("auto_mode_keep_asking", ["delete"])) | {"skill_import"})
+                  auto_keep_asking=set((cfg.get("approvals") or {}).get("auto_mode_keep_asking", ["delete"])) | {"skill_import"},
+                  audit_text=bool((cfg.get("privacy") or {}).get("audit_text", True)),
+                  audit_max_bytes=int(float((cfg.get("privacy") or {}).get("audit_max_mb", 5)) * 1024 * 1024))
 
 
 def ensure_llm(cfg: dict, log: Callable[[str], None] = print) -> None:
